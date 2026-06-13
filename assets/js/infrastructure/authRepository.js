@@ -91,6 +91,7 @@ export class SupabaseAuthRepository {
         email: profile.email,
         password: profile.password,
         options: {
+          emailRedirectTo: authRedirectUrl(),
           data: {
             name: profile.name,
             email: profile.email,
@@ -140,6 +141,10 @@ function userFromSupabase(user) {
     phone: user.phone || "",
     campaignIds: user.user_metadata?.campaignIds || []
   };
+}
+
+function authRedirectUrl() {
+  return window.DND_CALENDAR_CONFIG?.authRedirectUrl || `${window.location.origin}${window.location.pathname}`;
 }
 
 async function readAuthState() {

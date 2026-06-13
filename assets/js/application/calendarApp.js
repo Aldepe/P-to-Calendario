@@ -118,6 +118,8 @@ export class CalendarApp {
     });
 
     byId("recalculate").addEventListener("click", () => this.renderSessions());
+    byId("sendReminderTest")?.addEventListener("click", () => this.sendReminderTest());
+    byId("sendSessionTest")?.addEventListener("click", () => this.sendSessionTest());
 
     byId("campaignForm").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -227,6 +229,7 @@ export class CalendarApp {
     byId("appShell").hidden = !loggedIn;
     byId("userPanel").hidden = !loggedIn;
     if (!loggedIn) {
+      byId("dmEmailTools").hidden = true;
       this.renderSignupCampaigns();
       this.setAuthMode("login");
       return;
@@ -234,6 +237,7 @@ export class CalendarApp {
     byId("userName").textContent = this.currentUser.name;
     byId("userRole").textContent = this.currentUser.role === "dm" ? "DM" : "Player";
     document.querySelector('.tab[data-tab="campaigns"]').hidden = this.currentUser.role !== "dm";
+    byId("dmEmailTools").hidden = this.currentUser.role !== "dm";
     this.renderSignupCampaigns();
     this.renderCurrentProfile();
   }
@@ -608,6 +612,68 @@ export class CalendarApp {
     if (this.currentUser?.role !== "dm") return;
     this.state.sessions = this.state.sessions.filter((session) => session.id !== sessionId);
     await this.persistAndRender("Sesion desconfirmada.");
+  }
+
+  async sendReminderTest() {
+    if (this.currentUser?.role !== "dm") return;
+    const recipient = this.currentEmailRecipient();
+    if (!recipient) return;
+    await this.runEmailTest(async () => {
+      const result = await this.notificationGateway.sendReminderTest({ recipient });
+      return `Recordatorio de prueba: ${result.sent || 0} email(s).`;
+    });
+  }
+
+  async sendSessionTest() {
+    if (this.currentUser?.role !== "dm") return;
+    const recipient = this.currentEmailRecipient();
+    if (!recipient) return;
+    const session = {
+      id: crypto.randomUUID(),
+      campaignId: "test",
+      campaignName: "Prueba de campaña",
+      date: addDaysIso(this.weekStart, 2),
+      dayKey: "wednesday",
+      slotId: "evening",
+      slotLabel: "Tarde",
+      slotTime: "18:00-22:00",
+      dmNames: [this.currentUser.name],
+      absentPlayerNames: ["nadie"],
+      createdBy: this.currentUser.name
+    };
+    await this.runEmailTest(async () => {
+      const result = await this.notificationGateway.sendSessionTest({ recipient, session });
+      return `Confirmacion de prueba: ${result.sent || 0} email(s).`;
+    });
+  }
+
+  currentEmailRecipient() {
+    const participant = this.findCurrentParticipant();
+    const email = participant?.email || this.currentUser?.email || "";
+    if (!email) {
+      this.setEmailStatus("Tu usuario DM no tiene email.");
+      return null;
+    }
+    return {
+      id: participant?.id || this.currentUser.id,
+      name: participant?.name || this.currentUser.name,
+      email
+    };
+  }
+
+  async runEmailTest(action) {
+    try {
+      this.setEmailStatus("Enviando prueba...");
+      const message = await action();
+      this.setEmailStatus(message);
+    } catch (error) {
+      this.setEmailStatus(`Error enviando prueba: ${error.message || error}`);
+    }
+  }
+
+  setEmailStatus(message) {
+    byId("emailTestStatus").textContent = message || "";
+    this.setToast(message || "");
   }
 
   async persistAndRender(message) {
