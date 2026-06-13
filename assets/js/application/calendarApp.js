@@ -90,7 +90,11 @@ export class CalendarApp {
   bindControls() {
     document.querySelectorAll("[data-week]").forEach((button) => {
       button.addEventListener("click", () => {
-        this.weekStart.setDate(this.weekStart.getDate() + (button.dataset.week === "next" ? 7 : -7));
+        if (button.dataset.week === "current") {
+          this.weekStart = getWeekStart();
+        } else {
+          this.weekStart.setDate(this.weekStart.getDate() + (button.dataset.week === "next" ? 7 : -7));
+        }
         this.renderEditor();
         this.render();
       });
@@ -170,8 +174,10 @@ export class CalendarApp {
   async ensureCurrentParticipant() {
     if (!this.currentUser) return;
     const existing = this.findCurrentParticipant();
-    this.upsertParticipant(participantFromUser(this.currentUser, existing, this.state.campaigns));
-    this.state = await this.repository.save(this.state);
+    const participant = participantFromUser(this.currentUser, existing, this.state.campaigns);
+    const shouldPersist = !existing || hasParticipantProfileChanged(existing, participant);
+    this.upsertParticipant(participant);
+    if (shouldPersist) this.state = await this.repository.save(this.state);
   }
 
   findCurrentParticipant() {
@@ -810,17 +816,30 @@ export class CalendarApp {
 }
 
 function participantFromUser(user, existing = {}, campaigns = []) {
+  const current = existing || {};
+  const existingCampaignIds = Array.isArray(current.campaignIds) ? current.campaignIds : [];
+  const authCampaignIds = normalizeCampaignIds(user.campaignIds, campaigns);
   return normalizeParticipant({
-    ...existing,
-    id: user.id,
-    name: user.name,
-    role: user.role,
-    phone: user.phone,
-    email: user.email || existing?.email || "",
-    campaignIds: normalizeCampaignIds(user.campaignIds, campaigns),
-    filledUntil: existing?.filledUntil || "",
-    availability: existing?.availability || createEmptyAvailability()
+    ...current,
+    id: user.id || current.id,
+    name: user.name || current.name,
+    role: current.role || user.role,
+    phone: current.phone || user.phone,
+    email: current.email || user.email || "",
+    campaignIds: existingCampaignIds.length ? existingCampaignIds : authCampaignIds,
+    filledUntil: current.filledUntil || "",
+    availability: current.availability || createEmptyAvailability(),
+    availabilityByWeek: current.availabilityByWeek || {}
   }, campaigns);
+}
+
+function hasParticipantProfileChanged(previous, next) {
+  return previous.id !== next.id
+    || previous.name !== next.name
+    || previous.role !== next.role
+    || (previous.phone || "") !== (next.phone || "")
+    || (previous.email || "") !== (next.email || "")
+    || JSON.stringify(previous.campaignIds || []) !== JSON.stringify(next.campaignIds || []);
 }
 
 function buildSlotCard({ campaigns, participants, dayKey, slot, available, blocked, confirmed, slotCandidates, compact }) {

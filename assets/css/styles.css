@@ -306,6 +306,7 @@ main {
 .ui-icon-prev { --icon: "‹"; --icon-color: var(--muted); }
 .ui-icon-next,
 .ui-icon-login { --icon: "›"; --icon-color: var(--muted); }
+.ui-icon-current { --icon: "•"; --icon-bg: #fff8df; --icon-color: #8b6519; }
 .ui-icon-exit { --icon: "×"; --icon-color: var(--muted); }
 .ui-icon-save { --icon: "✓"; --icon-bg: #edf6f2; --icon-color: #327654; }
 .ui-icon-refresh { --icon: "↻"; --icon-bg: #edf6f2; --icon-color: #327654; }

@@ -24,20 +24,27 @@ export class SupabaseRepository {
 
   async load() {
     try {
-      const [{ data: participants }, { data: sessions }, { data: campaigns }] = await Promise.all([
+      const [participantsResult, sessionsResult, campaignsResult] = await Promise.all([
         this.client.from("participants").select("*").order("name"),
         this.client.from("sessions").select("*").order("date"),
         this.client.from("campaigns").select("*").order("name")
       ]);
+      await assertSupabaseResult(participantsResult, "cargar participantes");
+      await assertSupabaseResult(sessionsResult, "cargar sesiones");
+      await assertSupabaseResult(campaignsResult, "cargar campanas");
+
+      const participants = participantsResult.data || [];
+      const sessions = sessionsResult.data || [];
+      const campaigns = campaignsResult.data || [];
 
       return normalizeState({
-        campaigns: (campaigns || []).map((row) => ({
+        campaigns: campaigns.map((row) => ({
           id: row.id,
           name: row.name,
           tone: row.tone || "gold",
           dmIds: row.dm_ids || []
         })),
-        participants: (participants || []).map((row) => ({
+        participants: participants.map((row) => ({
           id: row.id,
           name: row.name,
           role: row.role,
@@ -48,7 +55,7 @@ export class SupabaseRepository {
           availability: row.availability,
           availabilityByWeek: row.availability_by_week || {}
         })),
-        sessions: (sessions || []).map((row) => ({
+        sessions: sessions.map((row) => ({
           id: row.id,
           campaignId: row.campaign_id,
           campaignName: row.campaign_name,
@@ -73,17 +80,17 @@ export class SupabaseRepository {
     const normalized = normalizeState(state);
     try {
       for (const campaign of normalized.campaigns) {
-        await this.client.from("campaigns").upsert({
+        await assertSupabaseResult(this.client.from("campaigns").upsert({
           id: campaign.id,
           name: campaign.name,
           tone: campaign.tone,
           dm_ids: campaign.dmIds
-        });
+        }), `guardar campana ${campaign.name}`);
       }
       await deleteRowsNotInState(this.client, "campaigns", normalized.campaigns.map((campaign) => campaign.id));
 
       for (const participant of normalized.participants) {
-        await this.client.from("participants").upsert({
+        await assertSupabaseResult(this.client.from("participants").upsert({
           id: participant.id,
           name: participant.name,
           role: participant.role,
@@ -93,11 +100,11 @@ export class SupabaseRepository {
           filled_until: participant.filledUntil || "1970-01-01",
           availability: participant.availability,
           availability_by_week: participant.availabilityByWeek || {}
-        });
+        }), `guardar disponibilidad de ${participant.name}`);
       }
 
       for (const session of normalized.sessions) {
-        await this.client.from("sessions").upsert({
+        await assertSupabaseResult(this.client.from("sessions").upsert({
           id: session.id,
           campaign_id: session.campaignId,
           campaign_name: session.campaignName,
@@ -109,7 +116,7 @@ export class SupabaseRepository {
           dm_names: session.dmNames,
           absent_player_names: session.absentPlayerNames,
           created_by: session.createdBy
-        });
+        }), `guardar sesion ${session.campaignName}`);
       }
       await deleteRowsNotInState(this.client, "sessions", normalized.sessions.map((session) => session.id));
 
@@ -188,6 +195,12 @@ async function deleteRowsNotInState(client, table, keepIds) {
     const { error: deleteError } = await client.from(table).delete().eq("id", id);
     if (deleteError) throw deleteError;
   }
+}
+
+async function assertSupabaseResult(resultOrPromise, context) {
+  const result = await resultOrPromise;
+  if (result?.error) throw new Error(`${context}: ${result.error.message}`);
+  return result;
 }
 
 function hasRealWeekData(availabilityByWeek) {
