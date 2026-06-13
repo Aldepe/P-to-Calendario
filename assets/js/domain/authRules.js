@@ -20,7 +20,8 @@ export function buildLoginCredentials(formData) {
     password: String(formData.get("loginPassword") || "")
   };
 
-  if (!credentials.name) throw new Error("Escribe tu nombre o email para entrar.");
+  if (!credentials.name) throw new Error("Escribe tu email para entrar.");
+  if (!credentials.email.includes("@")) throw new Error("El login necesita un email.");
   if (!credentials.password) throw new Error("Escribe tu contrasena.");
   return credentials;
 }
@@ -34,5 +35,5 @@ function validateProfile(profile) {
   if (!profile.email || !profile.email.includes("@")) throw new Error("Escribe un email valido.");
   if (profile.password.length < 4) throw new Error("La contrasena debe tener al menos 4 caracteres.");
   if (!["dm", "player"].includes(profile.role)) throw new Error("El rol debe ser DM o player.");
-  if (!profile.campaignIds.length) throw new Error("Elige al menos una campana.");
+  if (profile.role === "player" && !profile.campaignIds.length) throw new Error("Elige al menos una campana.");
 }

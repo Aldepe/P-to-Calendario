@@ -13,11 +13,7 @@ export const SLOTS = [
   { id: "evening", label: "Tarde", time: "18:00-22:00" }
 ];
 
-export const DEFAULT_CAMPAIGNS = [
-  { id: "drakkenheim", name: "Drakkenheim", tone: "gold", dmIds: [] },
-  { id: "strahd", name: "La Maldicion de Strahd", tone: "red", dmIds: [] },
-  { id: "eberron", name: "Relampagos de Eberron", tone: "green", dmIds: [] }
-];
+export const DEFAULT_CAMPAIGNS = [];
 
 export const CAMPAIGNS = DEFAULT_CAMPAIGNS;
 
@@ -140,7 +136,7 @@ export function normalizeParticipant(participant, campaigns = DEFAULT_CAMPAIGNS)
 }
 
 export function normalizeCampaigns(campaigns, participants = []) {
-  const source = Array.isArray(campaigns) && campaigns.length ? campaigns : DEFAULT_CAMPAIGNS;
+  const source = Array.isArray(campaigns) ? campaigns : DEFAULT_CAMPAIGNS;
   const normalized = source.map((campaign) => normalizeCampaign(campaign));
   const unique = [];
 
@@ -182,7 +178,7 @@ export function createCampaign(name, campaigns = DEFAULT_CAMPAIGNS) {
 export function normalizeCampaignIds(campaignIds, campaigns = DEFAULT_CAMPAIGNS) {
   const normalizedCampaigns = normalizeCampaigns(campaigns);
   const allowedIds = normalizedCampaigns.map((campaign) => campaign.id);
-  const ids = Array.isArray(campaignIds) && campaignIds.length ? campaignIds : allowedIds;
+  const ids = Array.isArray(campaignIds) ? campaignIds : [];
   return [...new Set(ids.filter((id) => allowedIds.includes(id)))];
 }
 

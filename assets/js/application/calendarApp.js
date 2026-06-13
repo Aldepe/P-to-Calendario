@@ -8,6 +8,7 @@ import {
   createCampaign,
   createEmptyAvailability,
   findSessionCandidates,
+  getCampaignPlayers,
   getPendingFillers,
   getWeekStart,
   normalizeCampaignIds,
@@ -184,7 +185,7 @@ export class CalendarApp {
     const availabilityByWeek = participant.availabilityByWeek || {};
     if (availabilityByWeek[key]) return availabilityByWeek[key];
 
-    const hasWeekData = Object.keys(availabilityByWeek).length > 0;
+    const hasWeekData = Object.keys(availabilityByWeek).some((itemKey) => !itemKey.startsWith("__"));
     const currentWeekKey = this.weekKey(getWeekStart());
     if (!hasWeekData && key === currentWeekKey) return participant.availability || createEmptyAvailability();
 
@@ -238,6 +239,7 @@ export class CalendarApp {
     byId("userRole").textContent = this.currentUser.role === "dm" ? "DM" : "Player";
     document.querySelector('.tab[data-tab="campaigns"]').hidden = this.currentUser.role !== "dm";
     byId("dmEmailTools").hidden = this.currentUser.role !== "dm";
+    this.renderEmailTools();
     this.renderSignupCampaigns();
     this.renderCurrentProfile();
   }
@@ -257,6 +259,14 @@ export class CalendarApp {
       </div>
       <p>${participant.role === "dm" ? "DM" : "Player"} · ${escapeHtml(participant.email || "sin email")} · ${escapeHtml(campaigns)}</p>
     `;
+  }
+
+  renderEmailTools() {
+    const field = byId("emailTestRecipient");
+    if (!field || !this.currentUser) return;
+    const email = this.findCurrentParticipant()?.email || this.currentUser.email || "";
+    field.placeholder = email && !email.endsWith(".local") ? email : "tu@email.com";
+    if (!field.value && email && !email.endsWith(".local")) field.value = email;
   }
 
   renderEditor() {
@@ -599,19 +609,46 @@ export class CalendarApp {
       slotTime: proposal.slot.time,
       dmNames: proposal.availableDms.map((participant) => participant.name),
       absentPlayerNames: proposal.unavailablePlayers.map((participant) => participant.name),
-      createdBy: this.currentUser.name
+      createdBy: this.currentUser.name,
+      details: buildSessionDetails(proposal)
     };
     this.state.sessions.push(session);
     await this.repository.save(this.state);
-    const result = await this.notificationGateway.sendSessionConfirmed({ session, confirmedBy: this.currentUser, recipients: proposal.players });
-    this.setToast(result.mode === "simulation" ? `Aviso simulado para ${result.sent} player(s).` : `Aviso enviado a ${result.sent || 0} player(s).`);
+    const result = await this.notificationGateway.sendSessionConfirmed({
+      eventType: "confirmed",
+      session,
+      confirmedBy: this.currentUser,
+      recipients: proposal.players
+    });
+    this.setToast(`Aviso enviado a ${result.sent || 0} player(s).`);
     this.render();
   }
 
   async cancelSession(sessionId) {
     if (this.currentUser?.role !== "dm") return;
-    this.state.sessions = this.state.sessions.filter((session) => session.id !== sessionId);
-    await this.persistAndRender("Sesion desconfirmada.");
+    const session = this.state.sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    const recipients = getCampaignPlayers(this.state.participants, session.campaignId, this.state.campaigns);
+    const sessionWeek = getWeekStart(parseLocalIsoDate(session.date));
+    const participants = this.participantsForWeek(sessionWeek);
+    const campaign = this.state.campaigns.find((item) => item.id === session.campaignId);
+    const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(session.campaignId));
+    const dms = participants.filter((participant) => participant.role === "dm" && campaign?.dmIds.includes(participant.id));
+    const enrichedSession = {
+      ...session,
+      cancelledBy: this.currentUser.name,
+      details: session.details || buildSessionDetailsFromStoredSession(session, players, dms)
+    };
+    this.state.sessions = this.state.sessions.filter((item) => item.id !== sessionId);
+    await this.repository.save(this.state);
+    const result = await this.notificationGateway.sendSessionCancelled({
+      eventType: "cancelled",
+      session: enrichedSession,
+      cancelledBy: this.currentUser,
+      recipients
+    });
+    this.setToast(`Cancelacion enviada a ${result.sent || 0} player(s).`);
+    this.render();
   }
 
   async sendReminderTest() {
@@ -639,7 +676,16 @@ export class CalendarApp {
       slotTime: "18:00-22:00",
       dmNames: [this.currentUser.name],
       absentPlayerNames: ["nadie"],
-      createdBy: this.currentUser.name
+      createdBy: this.currentUser.name,
+      details: {
+        availablePlayers: [{ name: recipient.name, mode: "online" }],
+        unavailablePlayers: [],
+        availableDms: [{ name: this.currentUser.name, mode: "online" }],
+        assignedDms: [{ name: this.currentUser.name }],
+        modeSummary: { online: 1, presencial: 0, cualquiera: 0 },
+        playersTotal: 1,
+        availablePlayersCount: 1
+      }
     };
     await this.runEmailTest(async () => {
       const result = await this.notificationGateway.sendSessionTest({ recipient, session });
@@ -649,9 +695,9 @@ export class CalendarApp {
 
   currentEmailRecipient() {
     const participant = this.findCurrentParticipant();
-    const email = participant?.email || this.currentUser?.email || "";
-    if (!email) {
-      this.setEmailStatus("Tu usuario DM no tiene email.");
+    const email = String(byId("emailTestRecipient")?.value || participant?.email || this.currentUser?.email || "").trim();
+    if (!email || !email.includes("@") || email.endsWith(".local")) {
+      this.setEmailStatus("Escribe un email real para la prueba.");
       return null;
     }
     return {
@@ -740,7 +786,58 @@ function modeCounts(participants, dayKey, slotId) {
   );
 }
 
+function buildSessionDetails(proposal) {
+  return {
+    availablePlayers: proposal.availablePlayers.map((participant) => participantSessionDetail(participant, proposal.dayKey, proposal.slot.id)),
+    unavailablePlayers: proposal.unavailablePlayers.map((participant) => participantSessionDetail(participant, proposal.dayKey, proposal.slot.id)),
+    availableDms: proposal.availableDms.map((participant) => participantSessionDetail(participant, proposal.dayKey, proposal.slot.id)),
+    assignedDms: proposal.assignedDms.map((participant) => ({ name: participant.name })),
+    modeSummary: modeCounts(proposal.availablePlayers, proposal.dayKey, proposal.slot.id),
+    playersTotal: proposal.players.length,
+    availablePlayersCount: proposal.availablePlayers.length
+  };
+}
+
+function buildSessionDetailsFromStoredSession(session, players, dms) {
+  const dayKey = session.dayKey;
+  const slotId = session.slotId;
+  const availablePlayers = players
+    .filter((participant) => participant.availability?.[dayKey]?.[slotId]?.available)
+    .map((participant) => participantSessionDetail(participant, dayKey, slotId));
+  const unavailablePlayers = players
+    .filter((participant) => !participant.availability?.[dayKey]?.[slotId]?.available)
+    .map((participant) => participantSessionDetail(participant, dayKey, slotId));
+  const availableDms = dms
+    .filter((participant) => participant.availability?.[dayKey]?.[slotId]?.available)
+    .map((participant) => participantSessionDetail(participant, dayKey, slotId));
+
+  return {
+    availablePlayers,
+    unavailablePlayers,
+    availableDms,
+    assignedDms: dms.map((participant) => ({ name: participant.name })),
+    modeSummary: modeCounts(players.filter((participant) => participant.availability?.[dayKey]?.[slotId]?.available), dayKey, slotId),
+    playersTotal: players.length,
+    availablePlayersCount: availablePlayers.length
+  };
+}
+
+function participantSessionDetail(participant, dayKey, slotId) {
+  const slot = participant.availability?.[dayKey]?.[slotId] || {};
+  return {
+    name: participant.name,
+    email: participant.email || "",
+    available: Boolean(slot.available),
+    mode: slot.mode || "online",
+    reason: String(slot.reason || "").trim()
+  };
+}
+
 function renderCampaignChoices(container, name, campaigns, selectedIds = []) {
+  if (!campaigns.length) {
+    container.innerHTML = `<p class="empty compact-empty">No hay campanas creadas.</p>`;
+    return;
+  }
   container.innerHTML = campaigns.map((campaign) => {
     const checked = selectedIds.includes(campaign.id) ? "checked" : "";
     return `<label class="campaign-choice"><input type="checkbox" name="${name}" value="${campaign.id}" ${checked} /><span>${escapeHtml(campaign.name)}</span></label>`;

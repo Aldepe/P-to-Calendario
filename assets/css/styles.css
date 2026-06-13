@@ -344,13 +344,17 @@ button:focus-visible {
   margin-bottom: 12px;
 }
 
-.demo-logins,
 .empty {
   border: 1px dashed var(--line);
   border-radius: 8px;
   padding: 10px;
   background: #fbf7f1;
   color: var(--muted);
+}
+
+.compact-empty {
+  margin: 0;
+  padding: 8px 10px;
 }
 
 .calendar-grid,
@@ -770,6 +774,11 @@ button:focus-visible {
   margin: 0;
   color: var(--muted);
   font-weight: 700;
+}
+
+.email-test-field {
+  flex: 1 1 220px;
+  max-width: 340px;
 }
 
 .odds-strip {

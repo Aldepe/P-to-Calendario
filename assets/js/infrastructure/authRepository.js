@@ -1,24 +1,4 @@
 const AUTH_KEY = "mesa-jackpot-auth-v1";
-const DEMO_ACCOUNTS = [
-  {
-    id: "local-demo-dm",
-    name: "DemoDM",
-    email: "dm@example.local",
-    role: "dm",
-    phone: "",
-    campaignIds: ["drakkenheim", "strahd", "eberron"],
-    password: "demo123"
-  },
-  {
-    id: "local-demo-player",
-    name: "DemoPlayer",
-    email: "player@example.local",
-    role: "player",
-    phone: "",
-    campaignIds: ["drakkenheim", "strahd", "eberron"],
-    password: "demo123"
-  }
-];
 
 export class LocalAuthRepository {
   async currentUser() {
@@ -50,7 +30,10 @@ export class LocalAuthRepository {
 
   async login(credentials) {
     const state = await readAuthState();
-    const account = state.accounts.find((item) => item.name.toLowerCase() === credentials.name.toLowerCase());
+    const account = state.accounts.find((item) =>
+      item.name.toLowerCase() === credentials.name.toLowerCase()
+      || String(item.email || "").toLowerCase() === credentials.email.toLowerCase()
+    );
     if (!account) throw new Error("No encuentro esa cuenta.");
 
     const credentialHash = await hashCredential(account.name, credentials.password);
@@ -69,7 +52,7 @@ export class LocalAuthRepository {
 }
 
 export class SupabaseAuthRepository {
-  constructor(client, fallback) {
+  constructor(client, fallback = null) {
     this.client = client;
     this.fallback = fallback;
   }
@@ -77,9 +60,10 @@ export class SupabaseAuthRepository {
   async currentUser() {
     try {
       const { data } = await this.client.auth.getUser();
-      if (!data?.user) return this.fallback.currentUser();
+      if (!data?.user) return this.fallback ? this.fallback.currentUser() : null;
       return userFromSupabase(data.user);
     } catch (error) {
+      if (!this.fallback) throw error;
       console.warn("Auth remoto no disponible, usando auth local.", error);
       return this.fallback.currentUser();
     }
@@ -96,6 +80,7 @@ export class SupabaseAuthRepository {
             name: profile.name,
             email: profile.email,
             role: profile.role,
+            phone: profile.phone,
             campaignIds: profile.campaignIds
           }
         }
@@ -103,6 +88,7 @@ export class SupabaseAuthRepository {
       if (error || !data?.user) throw error || new Error("Signup remoto incompleto.");
       return userFromSupabase(data.user);
     } catch (error) {
+      if (!this.fallback) throw error;
       console.warn("Signup remoto fallido, usando auth local.", error);
       return this.fallback.signUp(profile);
     }
@@ -118,6 +104,7 @@ export class SupabaseAuthRepository {
       if (error || !data?.user) throw error || new Error("Login remoto incompleto.");
       return userFromSupabase(data.user);
     } catch (error) {
+      if (!this.fallback) throw error;
       console.warn("Login remoto fallido, usando auth local.", error);
       return this.fallback.login(credentials);
     }
@@ -127,7 +114,7 @@ export class SupabaseAuthRepository {
     try {
       await this.client.auth.signOut();
     } finally {
-      await this.fallback.logout();
+      await this.fallback?.logout();
     }
   }
 }
@@ -138,7 +125,7 @@ function userFromSupabase(user) {
     name: user.user_metadata?.name || user.email || "Usuario",
     email: user.email || "",
     role: user.user_metadata?.role || "player",
-    phone: user.phone || "",
+    phone: user.user_metadata?.phone || user.phone || "",
     campaignIds: user.user_metadata?.campaignIds || []
   };
 }
@@ -150,29 +137,10 @@ function authRedirectUrl() {
 async function readAuthState() {
   const raw = localStorage.getItem(AUTH_KEY);
   const state = raw ? JSON.parse(raw) : { accounts: [], sessionUserId: null };
-  const normalized = {
+  return {
     accounts: Array.isArray(state.accounts) ? state.accounts : [],
     sessionUserId: state.sessionUserId || null
   };
-  let changed = false;
-
-  for (const demo of DEMO_ACCOUNTS) {
-    if (!normalized.accounts.some((account) => account.id === demo.id || account.name.toLowerCase() === demo.name.toLowerCase())) {
-      normalized.accounts.push({
-        id: demo.id,
-        name: demo.name,
-        email: demo.email,
-        role: demo.role,
-        phone: demo.phone,
-        campaignIds: demo.campaignIds,
-        credentialHash: await hashCredential(demo.name, demo.password)
-      });
-      changed = true;
-    }
-  }
-
-  if (changed) writeAuthState(normalized);
-  return normalized;
 }
 
 function writeAuthState(state) {

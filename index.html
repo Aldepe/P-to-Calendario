@@ -28,18 +28,13 @@
           </div>
 
           <form id="loginForm" class="auth-form">
-            <label>Nombre o email
-              <input name="loginName" autocomplete="username" required placeholder="DemoDM o tu@email.com" />
+            <label>Email
+              <input name="loginName" autocomplete="username" required placeholder="tu@email.com" />
             </label>
             <label>Contrasena
-              <input name="loginPassword" type="password" autocomplete="current-password" required placeholder="demo123" />
+              <input name="loginPassword" type="password" autocomplete="current-password" required />
             </label>
             <button class="primary-button" type="submit"><span class="ui-icon ui-icon-login" aria-hidden="true"></span><span>Entrar</span></button>
-            <div class="demo-logins">
-              <span class="mini-label">Demo local</span>
-              <p><b>DM:</b> DemoDM / demo123</p>
-              <p><b>Player:</b> DemoPlayer / demo123</p>
-            </div>
           </form>
 
           <form id="signupForm" class="auth-form" hidden>
@@ -153,8 +148,11 @@
             <article id="dmEmailTools" class="email-test-card" hidden>
               <div>
                 <span class="mini-label">Pruebas de correo</span>
-                <strong>Enviar al email del DM</strong>
+                <strong>Enviar prueba</strong>
               </div>
+              <label class="email-test-field">Email destino
+                <input id="emailTestRecipient" type="email" placeholder="tu@email.com" />
+              </label>
               <div class="form-actions">
                 <button class="ghost-button" type="button" id="sendReminderTest"><span class="ui-icon ui-icon-mail" aria-hidden="true"></span><span>Recordatorio</span></button>
                 <button class="ghost-button" type="button" id="sendSessionTest"><span class="ui-icon ui-icon-star" aria-hidden="true"></span><span>Sesion confirmada</span></button>

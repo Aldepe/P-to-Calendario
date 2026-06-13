@@ -21,9 +21,9 @@ async function createServices() {
   const client = createClient(config.supabaseUrl, config.supabaseAnonKey);
 
   return {
-    repository: new SupabaseRepository(client, fallbackRepository),
-    authRepository: new SupabaseAuthRepository(client, fallbackAuth),
-    notificationGateway: new SupabaseNotificationGateway(client, fallbackNotifications)
+    repository: new SupabaseRepository(client),
+    authRepository: new SupabaseAuthRepository(client),
+    notificationGateway: new SupabaseNotificationGateway(client)
   };
 }
 

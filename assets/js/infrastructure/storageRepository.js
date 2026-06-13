@@ -1,4 +1,4 @@
-import { DAYS, DEFAULT_CAMPAIGNS, SLOTS, addDaysIso, createEmptyAvailability, getWeekStart, normalizeCampaignIds, normalizeCampaigns } from "../domain/sessionRules.js";
+import { addDaysIso, createEmptyAvailability, getWeekStart, normalizeCampaignIds, normalizeCampaigns } from "../domain/sessionRules.js";
 
 const STORAGE_KEY = "mesa-jackpot-calendar-v3";
 
@@ -17,7 +17,7 @@ export class LocalStorageRepository {
 }
 
 export class SupabaseRepository {
-  constructor(client, fallback) {
+  constructor(client, fallback = null) {
     this.client = client;
     this.fallback = fallback;
   }
@@ -63,6 +63,7 @@ export class SupabaseRepository {
         }))
       });
     } catch (error) {
+      if (!this.fallback) throw error;
       console.warn("Supabase no disponible, usando localStorage.", error);
       return this.fallback.load();
     }
@@ -79,6 +80,7 @@ export class SupabaseRepository {
           dm_ids: campaign.dmIds
         });
       }
+      await deleteRowsNotInState(this.client, "campaigns", normalized.campaigns.map((campaign) => campaign.id));
 
       for (const participant of normalized.participants) {
         await this.client.from("participants").upsert({
@@ -109,9 +111,11 @@ export class SupabaseRepository {
           created_by: session.createdBy
         });
       }
+      await deleteRowsNotInState(this.client, "sessions", normalized.sessions.map((session) => session.id));
 
       return normalized;
     } catch (error) {
+      if (!this.fallback) throw error;
       console.warn("Guardado remoto fallido, persistiendo local.", error);
       return this.fallback.save(normalized);
     }
@@ -119,51 +123,10 @@ export class SupabaseRepository {
 }
 
 export function createEmptyState() {
-  const weekStart = getWeekStart();
-  const campaigns = DEFAULT_CAMPAIGNS.map((campaign) => ({ ...campaign, dmIds: ["local-demo-dm"] }));
   return {
-    campaigns,
-    participants: [
-      createDemoParticipant({
-        id: "local-demo-dm",
-        name: "DemoDM",
-        role: "dm",
-        email: "dm@example.local",
-        filledUntil: addDaysIso(weekStart, 6),
-        campaigns,
-        weekStart
-      }),
-      createDemoParticipant({
-        id: "local-demo-player",
-        name: "DemoPlayer",
-        role: "player",
-        email: "player@example.local",
-        filledUntil: "",
-        campaigns,
-        weekStart
-      })
-    ],
+    campaigns: [],
+    participants: [],
     sessions: []
-  };
-}
-
-function createDemoParticipant({ id, name, role, email, filledUntil, campaigns, weekStart }) {
-  const availability = createEmptyAvailability();
-  for (const [day] of DAYS) {
-    for (const slot of SLOTS) {
-      availability[day][slot.id] = { available: true, mode: "cualquiera", reason: "" };
-    }
-  }
-  return {
-    id,
-    name,
-    role,
-    email,
-    phone: "",
-    campaignIds: campaigns.map((campaign) => campaign.id),
-    filledUntil,
-    availability,
-    availabilityByWeek: { [addDaysIso(weekStart, 0)]: availability }
   };
 }
 
@@ -174,12 +137,6 @@ function normalizeState(state) {
     ? state.participants.map((participant) => normalizeStoredParticipant(participant, campaigns))
     : [];
 
-  for (const demo of base.participants) {
-    if (!participants.some((participant) => participant.id === demo.id || participant.name.toLowerCase() === demo.name.toLowerCase())) {
-      participants.push(normalizeStoredParticipant(demo, campaigns));
-    }
-  }
-
   return {
     campaigns: normalizeCampaigns(campaigns, participants),
     participants,
@@ -189,7 +146,7 @@ function normalizeState(state) {
 
 function normalizeStoredParticipant(participant, campaigns) {
   const availability = participant.availability || createEmptyAvailability();
-  const availabilityByWeek = participant.availabilityByWeek && Object.keys(participant.availabilityByWeek).length
+  const availabilityByWeek = participant.availabilityByWeek && hasRealWeekData(participant.availabilityByWeek)
     ? participant.availabilityByWeek
     : { [addDaysIso(getWeekStart(), 0)]: availability };
 
@@ -209,7 +166,7 @@ function normalizeStoredParticipant(participant, campaigns) {
 function normalizeStoredSession(session) {
   return {
     id: session.id || crypto.randomUUID(),
-    campaignId: session.campaignId || "drakkenheim",
+    campaignId: session.campaignId || "",
     campaignName: session.campaignName || "Campana",
     date: session.date,
     dayKey: session.dayKey,
@@ -220,4 +177,19 @@ function normalizeStoredSession(session) {
     absentPlayerNames: session.absentPlayerNames || [],
     createdBy: session.createdBy || ""
   };
+}
+
+async function deleteRowsNotInState(client, table, keepIds) {
+  const { data, error } = await client.from(table).select("id");
+  if (error) throw error;
+  const keep = new Set(keepIds);
+  const staleIds = (data || []).map((row) => row.id).filter((id) => !keep.has(id));
+  for (const id of staleIds) {
+    const { error: deleteError } = await client.from(table).delete().eq("id", id);
+    if (deleteError) throw deleteError;
+  }
+}
+
+function hasRealWeekData(availabilityByWeek) {
+  return Object.keys(availabilityByWeek).some((key) => !key.startsWith("__"));
 }

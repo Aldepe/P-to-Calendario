@@ -2,16 +2,16 @@ import { buildSessionMessage } from "../domain/notificationMessages.js";
 
 export class ConsoleNotificationGateway {
   async sendSessionConfirmed(payload) {
-    console.info("Aviso simulado", {
+    console.info("Aviso local", {
       message: buildSessionMessage(payload.session),
       recipients: payload.recipients.map((recipient) => ({ name: recipient.name, email: recipient.email }))
     });
-    return { mode: "simulation", sent: payload.recipients.filter((recipient) => recipient.email).length };
+    return { mode: "local", sent: payload.recipients.filter((recipient) => recipient.email).length };
   }
 
   async sendReminderTest(payload) {
-    console.info("Recordatorio simulado", payload);
-    return { mode: "simulation", sent: payload.recipient?.email ? 1 : 0 };
+    console.info("Recordatorio local", payload);
+    return { mode: "local", sent: payload.recipient?.email ? 1 : 0 };
   }
 
   async sendSessionTest(payload) {
@@ -21,10 +21,15 @@ export class ConsoleNotificationGateway {
       recipients: [payload.recipient]
     });
   }
+
+  async sendSessionCancelled(payload) {
+    console.info("Cancelacion local", payload);
+    return { mode: "local", sent: payload.recipients.filter((recipient) => recipient.email).length };
+  }
 }
 
 export class SupabaseNotificationGateway {
-  constructor(client, fallback) {
+  constructor(client, fallback = null) {
     this.client = client;
     this.fallback = fallback;
   }
@@ -35,11 +40,29 @@ export class SupabaseNotificationGateway {
         body: payload
       });
       if (error) throw error;
+      assertEmailResult(data);
       return data;
     } catch (error) {
-      console.warn("Notificacion remota fallida, usando simulacion local.", error);
+      if (!this.fallback) throw error;
+      console.warn("Notificacion remota fallida, usando salida local.", error);
       return this.fallback.sendSessionConfirmed(payload);
     }
+  }
+
+  async sendSessionCancelled(payload) {
+    return this.sendSessionLifecycle({
+      ...payload,
+      eventType: "cancelled"
+    });
+  }
+
+  async sendSessionLifecycle(payload) {
+    const { data, error } = await this.client.functions.invoke("email-session-confirmed", {
+      body: payload
+    });
+    if (error) throw error;
+    assertEmailResult(data);
+    return data;
   }
 
   async sendReminderTest(payload) {
@@ -50,17 +73,30 @@ export class SupabaseNotificationGateway {
       }
     });
     if (error) throw error;
+    assertEmailResult(data);
     return data;
   }
 
   async sendSessionTest(payload) {
     const { data, error } = await this.client.functions.invoke("email-session-confirmed", {
       body: {
+        eventType: "confirmed",
         recipients: [payload.recipient],
         session: payload.session
       }
     });
     if (error) throw error;
+    assertEmailResult(data);
     return data;
+  }
+}
+
+function assertEmailResult(data) {
+  const failures = Array.isArray(data?.failures) ? data.failures : [];
+  if (failures.length) {
+    throw new Error(failures.map((failure) => failure.message || failure.email || String(failure)).join(" | "));
+  }
+  if (!data || Number(data.sent || 0) <= 0) {
+    throw new Error("La funcion respondio, pero no envio ningun email.");
   }
 }
