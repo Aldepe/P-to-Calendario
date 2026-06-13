@@ -2,77 +2,66 @@ import { buildSessionMessage } from "../domain/notificationMessages.js";
 
 export class ConsoleNotificationGateway {
   async sendSessionConfirmed(payload) {
-    console.info("Aviso local", {
+    console.info("Aviso local Discord", {
       message: buildSessionMessage(payload.session),
-      recipients: payload.recipients.map((recipient) => ({ name: recipient.name, email: recipient.email }))
+      eventType: "confirmed"
     });
-    return { mode: "local", sent: payload.recipients.filter((recipient) => recipient.email).length, discordSent: 0 };
+    return localDiscordResult();
   }
 
-  async sendReminderTest(payload) {
-    console.info("Recordatorio local", payload);
-    return { mode: "local", sent: payload.recipient?.email ? 1 : 0, discordSent: 0 };
+  async sendSessionCancelled(payload) {
+    console.info("Cancelacion local Discord", {
+      session: payload.session,
+      eventType: "cancelled"
+    });
+    return localDiscordResult();
   }
 
-  async sendReminderForParticipant(payload) {
-    console.info("Recordatorio inicial local", payload);
-    return { mode: "local", sent: payload?.email ? 1 : 0, discordSent: 0 };
+  async sendReminderTest(payload = {}) {
+    console.info("Recordatorio local Discord", payload);
+    return localDiscordResult();
+  }
+
+  async sendReminderForParticipant(payload = {}) {
+    console.info("Recordatorio diario local omitido", payload);
+    return { mode: "local", sent: 0, discordSent: 0, skipped: true };
   }
 
   async sendSessionTest(payload) {
     return this.sendSessionConfirmed({
       session: payload.session,
-      confirmedBy: payload.recipient,
-      recipients: [payload.recipient]
+      confirmedBy: payload.actor
     });
   }
 
   async sendSessionCancelTest(payload) {
     return this.sendSessionCancelled({
-      session: payload.session,
-      cancelledBy: payload.recipient,
-      recipients: payload.recipient?.email ? [payload.recipient] : []
+      session: {
+        ...payload.session,
+        cancelledBy: payload.actor?.name || payload.session?.cancelledBy
+      },
+      cancelledBy: payload.actor
     });
-  }
-
-  async sendSessionCancelled(payload) {
-    console.info("Cancelacion local", payload);
-    return { mode: "local", sent: payload.recipients.filter((recipient) => recipient.email).length, discordSent: 0 };
   }
 }
 
 export class SupabaseNotificationGateway {
-  constructor(client, fallback = null) {
+  constructor(client) {
     this.client = client;
-    this.fallback = fallback;
   }
 
   async sendSessionConfirmed(payload) {
-    try {
-      const { data, error } = await this.client.functions.invoke("email-session-confirmed", {
-        body: payload
-      });
-      if (error) throw error;
-      assertNotificationResult(data);
-      return data;
-    } catch (error) {
-      if (!this.fallback) throw error;
-      console.warn("Notificacion remota fallida, usando salida local.", error);
-      return this.fallback.sendSessionConfirmed(payload);
-    }
+    return this.sendSessionLifecycle({
+      ...payload,
+      eventType: "confirmed"
+    });
   }
 
   async sendSessionCancelled(payload) {
-    try {
-      return await this.sendSessionLifecycle({
-        ...payload,
-        eventType: "cancelled"
-      });
-    } catch (error) {
-      if (!this.fallback) throw error;
-      console.warn("Cancelacion remota fallida, usando salida local.", error);
-      return this.fallback.sendSessionCancelled(payload);
-    }
+    return this.sendSessionLifecycle({
+      ...payload,
+      eventType: "cancelled"
+    });
   }
 
   async sendSessionLifecycle(payload) {
@@ -80,19 +69,16 @@ export class SupabaseNotificationGateway {
       body: payload
     });
     if (error) throw error;
-    assertNotificationResult(data);
+    assertDiscordResult(data);
     return data;
   }
 
-  async sendReminderTest(payload) {
+  async sendReminderTest() {
     const { data, error } = await this.client.functions.invoke("email-reminders", {
-      body: {
-        test: true,
-        testRecipient: payload.recipient
-      }
+      body: { test: true }
     });
     if (error) throw error;
-    assertNotificationResult(data);
+    assertDiscordResult(data);
     return data;
   }
 
@@ -103,7 +89,7 @@ export class SupabaseNotificationGateway {
       }
     });
     if (error) throw error;
-    assertNotificationResult(data, { allowZero: true });
+    assertDiscordResult(data, { allowZero: true });
     return data;
   }
 
@@ -111,12 +97,11 @@ export class SupabaseNotificationGateway {
     const { data, error } = await this.client.functions.invoke("email-session-confirmed", {
       body: {
         eventType: "confirmed",
-        recipients: [payload.recipient],
         session: payload.session
       }
     });
     if (error) throw error;
-    assertNotificationResult(data);
+    assertDiscordResult(data);
     return data;
   }
 
@@ -124,26 +109,29 @@ export class SupabaseNotificationGateway {
     const { data, error } = await this.client.functions.invoke("email-session-confirmed", {
       body: {
         eventType: "cancelled",
-        recipients: payload.recipient.email ? [payload.recipient] : [],
         session: {
           ...payload.session,
-          cancelledBy: payload.recipient.name
+          cancelledBy: payload.actor?.name || payload.session?.cancelledBy
         }
       }
     });
     if (error) throw error;
-    assertNotificationResult(data);
+    assertDiscordResult(data);
     return data;
   }
 }
 
-function assertNotificationResult(data, options = {}) {
+function localDiscordResult() {
+  return { mode: "local", sent: 0, discordSent: 1, providers: ["local-discord"] };
+}
+
+function assertDiscordResult(data, options = {}) {
   const failures = Array.isArray(data?.failures) ? data.failures : [];
   if (failures.length) {
-    throw new Error(failures.map((failure) => failure.message || failure.email || String(failure)).join(" | "));
+    throw new Error(failures.map((failure) => failure.message || failure.channel || failure.provider || String(failure)).join(" | "));
   }
-  const delivered = Number(data?.sent || 0) + Number(data?.discordSent || 0);
-  if (!options.allowZero && delivered <= 0) {
-    throw new Error("La funcion respondio, pero no envio ningun aviso. Revisa el email o configura DISCORD_WEBHOOK_URL.");
+  const discordSent = Number(data?.discordSent || 0);
+  if (!options.allowZero && discordSent <= 0) {
+    throw new Error("La funcion respondio, pero no publico en Discord. Revisa DISCORD_WEBHOOK_URL en los secrets de Supabase.");
   }
 }

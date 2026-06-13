@@ -8,7 +8,6 @@ import {
   createCampaign,
   createEmptyAvailability,
   findSessionCandidates,
-  getCampaignPlayers,
   getPendingFillers,
   getWeekStart,
   normalizeCampaignIds,
@@ -166,7 +165,6 @@ export class CalendarApp {
     const existing = this.findCurrentParticipant();
     this.upsertParticipant(participantFromUser(this.currentUser, existing, this.state.campaigns));
     this.state = await this.repository.save(this.state);
-    if (!existing && this.currentUser.email) await this.sendInitialReminder();
   }
 
   findCurrentParticipant() {
@@ -237,7 +235,7 @@ export class CalendarApp {
     byId("appShell").hidden = !loggedIn;
     byId("userPanel").hidden = !loggedIn;
     if (!loggedIn) {
-      byId("dmEmailTools").hidden = true;
+      byId("dmDiscordTools").hidden = true;
       this.renderSignupCampaigns();
       this.setAuthMode("login");
       return;
@@ -245,8 +243,7 @@ export class CalendarApp {
     byId("userName").textContent = this.currentUser.name;
     byId("userRole").textContent = this.currentUser.role === "dm" ? "DM" : "Player";
     document.querySelector('.tab[data-tab="campaigns"]').hidden = this.currentUser.role !== "dm";
-    byId("dmEmailTools").hidden = this.currentUser.role !== "dm";
-    this.renderEmailTools();
+    byId("dmDiscordTools").hidden = this.currentUser.role !== "dm";
     this.renderSignupCampaigns();
     this.renderCurrentProfile();
   }
@@ -266,14 +263,6 @@ export class CalendarApp {
       </div>
       <p>${participant.role === "dm" ? "DM" : "Player"} - ${escapeHtml(participant.email || "sin email")} - ${escapeHtml(campaigns || "sin campanas")}</p>
     `;
-  }
-
-  renderEmailTools() {
-    const field = byId("emailTestRecipient");
-    if (!field || !this.currentUser) return;
-    const email = this.findCurrentParticipant()?.email || this.currentUser.email || "";
-    field.placeholder = email && !email.endsWith(".local") ? email : "tu@email.com";
-    if (!field.value && email && !email.endsWith(".local")) field.value = email;
   }
 
   renderEditor() {
@@ -654,7 +643,7 @@ export class CalendarApp {
         eventType: "confirmed",
         session,
         confirmedBy: this.currentUser,
-        recipients: uniqueRecipients([...proposal.players, ...proposal.assignedDms])
+        recipients: []
       });
       this.setToast(`Aviso enviado: ${formatDelivery(result)}.`);
       this.render();
@@ -674,7 +663,6 @@ export class CalendarApp {
       const campaign = this.state.campaigns.find((item) => item.id === session.campaignId);
       const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(session.campaignId));
       const dms = participants.filter((participant) => participant.role === "dm" && campaign?.dmIds.includes(participant.id));
-      const recipients = uniqueRecipients([...getCampaignPlayers(this.state.participants, session.campaignId, this.state.campaigns), ...dms]);
       const enrichedSession = {
         ...session,
         cancelledBy: this.currentUser.name,
@@ -686,7 +674,7 @@ export class CalendarApp {
         eventType: "cancelled",
         session: enrichedSession,
         cancelledBy: this.currentUser,
-        recipients
+        recipients: []
       });
       this.setToast(`Cancelacion enviada: ${formatDelivery(result)}.`);
       this.render();
@@ -696,53 +684,38 @@ export class CalendarApp {
     }
   }
 
-  async sendInitialReminder() {
-    const participant = this.findCurrentParticipant();
-    if (!participant?.email) return;
-    try {
-      const result = await this.notificationGateway.sendReminderForParticipant(participant);
-      if (Number(result.sent || 0) + Number(result.discordSent || 0) > 0) this.setToast(`Cuenta creada. Recordatorio inicial: ${formatDelivery(result)}.`);
-    } catch (error) {
-      console.warn("No se pudo enviar el recordatorio inicial.", error);
-    }
-  }
-
   async sendReminderTest() {
     if (this.currentUser?.role !== "dm") return;
-    const recipient = this.currentNoticeRecipient();
-    if (!recipient) return;
-    await this.runEmailTest(async () => {
-      const result = await this.notificationGateway.sendReminderTest({ recipient });
+    await this.runDiscordTest(async () => {
+      const result = await this.notificationGateway.sendReminderTest();
       return `Recordatorio de prueba: ${formatDelivery(result)}.`;
     });
   }
 
   async sendSessionTest() {
     if (this.currentUser?.role !== "dm") return;
-    const recipient = this.currentNoticeRecipient();
-    if (!recipient) return;
-    const session = this.testSession(recipient);
-    await this.runEmailTest(async () => {
-      const result = await this.notificationGateway.sendSessionTest({ recipient, session });
+    const actor = this.currentDiscordActor();
+    const session = this.testSession(actor);
+    await this.runDiscordTest(async () => {
+      const result = await this.notificationGateway.sendSessionTest({ actor, session });
       return `Confirmacion de prueba: ${formatDelivery(result)}.`;
     });
   }
 
   async sendSessionCancelTest() {
     if (this.currentUser?.role !== "dm") return;
-    const recipient = this.currentNoticeRecipient();
-    if (!recipient) return;
+    const actor = this.currentDiscordActor();
     const session = {
-      ...this.testSession(recipient),
+      ...this.testSession(actor),
       cancelledBy: this.currentUser.name
     };
-    await this.runEmailTest(async () => {
-      const result = await this.notificationGateway.sendSessionCancelTest({ recipient, session });
+    await this.runDiscordTest(async () => {
+      const result = await this.notificationGateway.sendSessionCancelTest({ actor, session });
       return `Cancelacion de prueba: ${formatDelivery(result)}.`;
     });
   }
 
-  testSession(recipient) {
+  testSession(actor) {
     return {
       id: crypto.randomUUID(),
       campaignId: "test",
@@ -756,43 +729,41 @@ export class CalendarApp {
       absentPlayerNames: ["nadie"],
       createdBy: this.currentUser.name,
       details: {
-        availablePlayers: [{ name: recipient.name, mode: "online" }],
-        unavailablePlayers: [],
+        availablePlayers: [
+          { name: "Player A", mode: "online" },
+          { name: "Player B", mode: "presencial" },
+          { name: "Player C", mode: "cualquiera" }
+        ],
+        unavailablePlayers: [{ name: "Player D", mode: "online", reason: "Viaje" }],
         availableDms: [{ name: this.currentUser.name, mode: "online" }],
-        assignedDms: [{ name: this.currentUser.name }],
-        modeSummary: { online: 1, presencial: 0, cualquiera: 0 },
-        playersTotal: 1,
-        availablePlayersCount: 1
+        assignedDms: [{ name: actor.name }],
+        modeSummary: { online: 1, presencial: 1, cualquiera: 1 },
+        playersTotal: 4,
+        availablePlayersCount: 3
       }
     };
   }
 
-  currentNoticeRecipient() {
+  currentDiscordActor() {
     const participant = this.findCurrentParticipant();
-    const email = String(byId("emailTestRecipient")?.value || "").trim();
-    if (email && (!email.includes("@") || email.endsWith(".local"))) {
-      this.setEmailStatus("Escribe un email real o deja el campo vacio para probar solo Discord.");
-      return null;
-    }
     return {
       id: participant?.id || this.currentUser.id,
-      name: participant?.name || this.currentUser.name,
-      email
+      name: participant?.name || this.currentUser.name
     };
   }
 
-  async runEmailTest(action) {
+  async runDiscordTest(action) {
     try {
-      this.setEmailStatus("Enviando prueba...");
+      this.setDiscordStatus("Publicando en Discord...");
       const message = await action();
-      this.setEmailStatus(message);
+      this.setDiscordStatus(message);
     } catch (error) {
-      this.setEmailStatus(`Error enviando prueba: ${error.message || error}`);
+      this.setDiscordStatus(`Error publicando en Discord: ${error.message || error}`);
     }
   }
 
-  setEmailStatus(message) {
-    byId("emailTestStatus").textContent = message || "";
+  setDiscordStatus(message) {
+    byId("discordTestStatus").textContent = message || "";
     this.setToast(message || "");
   }
 
@@ -842,7 +813,10 @@ function buildSlotCard({ campaigns, participants, dayKey, slot, available, block
       <span title="Ambos">${icon("cualquiera")}<b>${counts.cualquiera}</b></span>
     </div>
     ${compact ? "" : `<div class="campaign-chip-row">${slotCandidates.map((candidate) => chip(candidate.campaignName)).join("") || '<span class="soft-chip">Sin propuesta</span>'}</div>`}
-    ${compact ? "" : `<div class="people-lines"><span>${icon("available")}${formatPeople(available) || "Nadie"}</span><span>${icon("unavailable")}${formatUnavailable(blocked, dayKey, slot.id) || "Sin bloqueos"}</span></div>`}
+    ${compact ? "" : `<div class="people-lines">
+      <span title="${peopleTitle(available)}">${icon("available")}${formatPeopleSummary(available, "disponibles")}</span>
+      <span title="${unavailableTitle(blocked, dayKey, slot.id)}">${icon("unavailable")}${formatUnavailableSummary(blocked, dayKey, slot.id)}</span>
+    </div>`}
   `;
   return card;
 }
@@ -900,7 +874,6 @@ function participantSessionDetail(participant, dayKey, slotId) {
   const slot = participant.availability?.[dayKey]?.[slotId] || {};
   return {
     name: participant.name,
-    email: participant.email || "",
     available: Boolean(slot.available),
     mode: slot.mode || "cualquiera",
     reason: String(slot.reason || "").trim()
@@ -929,8 +902,26 @@ function formatPeople(items) {
   return escapeHtml(items.map((item) => item.name).join(", "));
 }
 
-function formatUnavailable(items, dayKey, slotId) {
-  return escapeHtml(items.map((item) => `${item.name}${reasonFor(item, dayKey, slotId)}`).join(", "));
+function formatPeopleSummary(items, label) {
+  if (!items.length) return "0";
+  const visible = items.slice(0, 4).map((item) => item.name).join(", ");
+  const extra = items.length > 4 ? ` +${items.length - 4}` : "";
+  return escapeHtml(`${items.length} ${label}: ${visible}${extra}`);
+}
+
+function formatUnavailableSummary(items, dayKey, slotId) {
+  if (!items.length) return "0 fuera";
+  const visible = items.slice(0, 3).map((item) => `${item.name}${reasonFor(item, dayKey, slotId)}`).join(", ");
+  const extra = items.length > 3 ? ` +${items.length - 3}` : "";
+  return escapeHtml(`${items.length} fuera: ${visible}${extra}`);
+}
+
+function peopleTitle(items) {
+  return escapeHtml(items.map((item) => item.name).join(", ") || "Nadie");
+}
+
+function unavailableTitle(items, dayKey, slotId) {
+  return escapeHtml(items.map((item) => `${item.name}${reasonFor(item, dayKey, slotId)}`).join(", ") || "Sin bloqueos");
 }
 
 function reasonFor(participant, dayKey, slotId) {
@@ -990,20 +981,9 @@ function todayIso() {
   return `${year}-${month}-${day}`;
 }
 
-function uniqueRecipients(recipients) {
-  const seen = new Set();
-  return recipients.filter((recipient) => {
-    const key = recipient.email || recipient.id || recipient.name;
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function formatDelivery(result = {}) {
-  const emailCount = Number(result.sent || 0);
   const discordCount = Number(result.discordSent || 0);
-  return `${emailCount} email(s), ${discordCount} Discord`;
+  return `${discordCount} mensaje(s) en Discord`;
 }
 
 function escapeHtml(value) {

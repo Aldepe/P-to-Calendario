@@ -87,7 +87,7 @@ export function getCampaignPlayers(participants, campaignId, campaigns = DEFAULT
 export function getPendingFillers(participants, weekStart = getWeekStart(), campaigns = DEFAULT_CAMPAIGNS) {
   return participants
     .map((participant) => normalizeParticipant(participant, campaigns))
-    .filter((participant) => (participant.phone || participant.email) && !isWeekComplete(participant, weekStart));
+    .filter((participant) => participant.role === "player" && !isFilledForCurrentWeek(participant.filledUntil, weekStart));
 }
 
 export function getWeekStart(date = new Date()) {

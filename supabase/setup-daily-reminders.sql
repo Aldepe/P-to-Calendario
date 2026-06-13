@@ -3,10 +3,10 @@ create extension if not exists pg_net with schema extensions;
 
 select cron.unschedule(jobid)
 from cron.job
-where jobname = 'daily-email-reminders';
+where jobname in ('daily-email-reminders', 'daily-discord-reminders');
 
 select cron.schedule(
-  'daily-email-reminders',
+  'daily-discord-reminders',
   '0 8 * * *',
   $$
   select net.http_post(

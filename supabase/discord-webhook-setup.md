@@ -2,6 +2,8 @@
 
 La integracion usa un webhook de Discord. Es gratis y no necesita bot, dominio ni servidor extra. El webhook publica mensajes en un canal concreto, no envia DMs privados.
 
+Nota: las Edge Functions conservan sus nombres historicos (`email-reminders` y `email-session-confirmed`) para no romper URLs ni cron existentes, pero ya solo publican en Discord.
+
 ## Pasos
 
 1. En Discord, abre el canal donde quieres recibir avisos.

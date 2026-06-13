@@ -282,7 +282,7 @@ main {
 .ui-icon-save { --icon: "✓"; --icon-bg: #edf6f2; --icon-color: #327654; }
 .ui-icon-refresh { --icon: "↻"; --icon-bg: #edf6f2; --icon-color: #327654; }
 .ui-icon-add { --icon: "+"; --icon-bg: #edf6f2; --icon-color: #327654; }
-.ui-icon-mail { --icon: "@"; --icon-bg: #e9f4ff; --icon-color: #326995; }
+.ui-icon-discord { --icon: "#"; --icon-bg: #eef1fb; --icon-color: #596387; }
 .ui-icon-star { --icon: "★"; --icon-bg: #fff8df; --icon-color: #8b6519; }
 .ui-icon-dm { --icon: "◇"; --icon-bg: #fff8df; --icon-color: #8b6519; }
 .ui-icon-players { --icon: "●"; --icon-bg: #edf6f2; --icon-color: #327654; }
@@ -649,9 +649,10 @@ button:focus-visible {
 
 .people-lines span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .fill-month-grid {
@@ -755,7 +756,7 @@ button:focus-visible {
   font-weight: 750;
 }
 
-.email-test-card {
+.discord-test-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -769,16 +770,11 @@ button:focus-visible {
     linear-gradient(90deg, rgba(233, 244, 255, 0.9), rgba(255, 248, 223, 0.72));
 }
 
-.email-test-card p {
+.discord-test-card p {
   flex-basis: 100%;
   margin: 0;
   color: var(--muted);
   font-weight: 700;
-}
-
-.email-test-field {
-  flex: 1 1 220px;
-  max-width: 340px;
 }
 
 .odds-strip {
