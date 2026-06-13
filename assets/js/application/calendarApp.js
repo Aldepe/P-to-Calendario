@@ -122,8 +122,8 @@ export class CalendarApp {
       const form = event.currentTarget;
       try {
         await this.runWithButtonLoading(form.querySelector("#saveAvailability"), "Guardando...", async () => {
-          this.upsertParticipant(this.participantFromAvailability(new FormData(form)));
-          await this.persistAndRender("Disponibilidad guardada.");
+          const participant = this.upsertParticipant(this.participantFromAvailability(new FormData(form)));
+          await this.persistParticipantAndRender(participant, "Disponibilidad guardada.");
           this.renderEditor();
         });
       } catch (error) {
@@ -192,6 +192,7 @@ export class CalendarApp {
     const index = this.state.participants.findIndex((item) => item.id === normalized.id || item.name.toLowerCase() === normalized.name.toLowerCase());
     if (index >= 0) this.state.participants[index] = { ...this.state.participants[index], ...normalized };
     else this.state.participants.push(normalized);
+    return normalized;
   }
 
   weekKey(date = this.weekStart) {
@@ -806,6 +807,16 @@ export class CalendarApp {
 
   async persistAndRender(message) {
     this.state = await this.repository.save(this.state);
+    this.setToast(message);
+    this.render();
+  }
+
+  async persistParticipantAndRender(participant, message) {
+    if (typeof this.repository.saveParticipant === "function") {
+      this.state = await this.repository.saveParticipant(participant, this.state);
+    } else {
+      this.state = await this.repository.save(this.state);
+    }
     this.setToast(message);
     this.render();
   }

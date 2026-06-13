@@ -14,6 +14,12 @@ export class LocalStorageRepository {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
     return normalized;
   }
+
+  saveParticipant(participant, state) {
+    const normalized = upsertParticipantInState(state, participant);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  }
 }
 
 export class SupabaseRepository {
@@ -80,27 +86,12 @@ export class SupabaseRepository {
     const normalized = normalizeState(state);
     try {
       for (const campaign of normalized.campaigns) {
-        await assertSupabaseResult(this.client.from("campaigns").upsert({
-          id: campaign.id,
-          name: campaign.name,
-          tone: campaign.tone,
-          dm_ids: campaign.dmIds
-        }), `guardar campana ${campaign.name}`);
+        await assertSupabaseResult(this.client.from("campaigns").upsert(campaignRow(campaign)), `guardar campana ${campaign.name}`);
       }
       await deleteRowsNotInState(this.client, "campaigns", normalized.campaigns.map((campaign) => campaign.id));
 
       for (const participant of normalized.participants) {
-        await assertSupabaseResult(this.client.from("participants").upsert({
-          id: participant.id,
-          name: participant.name,
-          role: participant.role,
-          email: participant.email || "",
-          phone: participant.phone,
-          campaign_ids: participant.campaignIds,
-          filled_until: participant.filledUntil || "1970-01-01",
-          availability: participant.availability,
-          availability_by_week: participant.availabilityByWeek || {}
-        }), `guardar disponibilidad de ${participant.name}`);
+        await assertSupabaseResult(this.client.from("participants").upsert(participantRow(participant), { onConflict: "id" }), `guardar participante ${participant.name}`);
       }
 
       for (const session of normalized.sessions) {
@@ -127,6 +118,23 @@ export class SupabaseRepository {
       return this.fallback.save(normalized);
     }
   }
+
+  async saveParticipant(participant, state) {
+    const normalized = upsertParticipantInState(state, participant);
+    const normalizedParticipant = findParticipant(normalized.participants, participant);
+
+    try {
+      await assertSupabaseResult(
+        this.client.from("participants").upsert(participantRow(normalizedParticipant), { onConflict: "id" }),
+        `guardar disponibilidad de ${normalizedParticipant.name}`
+      );
+      return normalized;
+    } catch (error) {
+      if (!this.fallback) throw enrichAvailabilitySaveError(error);
+      console.warn("Guardado remoto de disponibilidad fallido, persistiendo local.", error);
+      return this.fallback.saveParticipant(normalizedParticipant, normalized);
+    }
+  }
 }
 
 export function createEmptyState() {
@@ -149,6 +157,26 @@ function normalizeState(state) {
     participants,
     sessions: Array.isArray(state?.sessions) ? state.sessions.map(normalizeStoredSession) : []
   };
+}
+
+function upsertParticipantInState(state, participant) {
+  const normalized = normalizeState(state);
+  const normalizedParticipant = normalizeStoredParticipant(participant, normalized.campaigns);
+  const index = normalized.participants.findIndex((item) =>
+    item.id === normalizedParticipant.id
+    || item.name.toLowerCase() === normalizedParticipant.name.toLowerCase()
+  );
+
+  if (index >= 0) normalized.participants[index] = { ...normalized.participants[index], ...normalizedParticipant };
+  else normalized.participants.push(normalizedParticipant);
+
+  return normalizeState(normalized);
+}
+
+function findParticipant(participants, participant) {
+  return participants.find((item) => item.id === participant.id)
+    || participants.find((item) => item.name.toLowerCase() === String(participant.name || "").toLowerCase())
+    || participants[participants.length - 1];
 }
 
 function normalizeStoredParticipant(participant, campaigns) {
@@ -186,6 +214,29 @@ function normalizeStoredSession(session) {
   };
 }
 
+function campaignRow(campaign) {
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    tone: campaign.tone,
+    dm_ids: campaign.dmIds
+  };
+}
+
+function participantRow(participant) {
+  return {
+    id: participant.id,
+    name: participant.name,
+    role: participant.role,
+    email: participant.email || "",
+    phone: participant.phone,
+    campaign_ids: participant.campaignIds,
+    filled_until: participant.filledUntil || "1970-01-01",
+    availability: participant.availability,
+    availability_by_week: participant.availabilityByWeek || {}
+  };
+}
+
 async function deleteRowsNotInState(client, table, keepIds) {
   const { data, error } = await client.from(table).select("id");
   if (error) throw error;
@@ -201,6 +252,14 @@ async function assertSupabaseResult(resultOrPromise, context) {
   const result = await resultOrPromise;
   if (result?.error) throw new Error(`${context}: ${result.error.message}`);
   return result;
+}
+
+function enrichAvailabilitySaveError(error) {
+  const message = error?.message || String(error);
+  if (message.includes("availability") || message.includes("column")) {
+    return new Error(`${message}. Revisa que la tabla participants tenga las columnas jsonb availability y availability_by_week.`);
+  }
+  return error;
 }
 
 function hasRealWeekData(availabilityByWeek) {
