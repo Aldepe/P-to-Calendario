@@ -142,7 +142,7 @@ export class CalendarApp {
       const name = String(new FormData(event.currentTarget).get("campaignName") || "").trim();
       if (!name) return;
       const campaign = createCampaign(name, this.state.campaigns);
-      campaign.dmIds = [this.currentUser.id];
+      campaign.dmIds = [this.currentParticipantId()];
       this.state.campaigns.push(campaign);
       this.syncDmCampaignMembership(campaign.id, campaign.dmIds);
       event.currentTarget.reset();
@@ -185,6 +185,10 @@ export class CalendarApp {
     return this.state.participants.find((participant) => participant.id === this.currentUser.id)
       || this.state.participants.find((participant) => participant.name.toLowerCase() === this.currentUser.name.toLowerCase())
       || null;
+  }
+
+  currentParticipantId() {
+    return this.findCurrentParticipant()?.id || this.currentUser?.id || "";
   }
 
   upsertParticipant(participant) {
@@ -832,7 +836,7 @@ function participantFromUser(user, existing = {}, campaigns = []) {
   const authCampaignIds = normalizeCampaignIds(user.campaignIds, campaigns);
   return normalizeParticipant({
     ...current,
-    id: user.id || current.id,
+    id: current.id || user.id,
     name: user.name || current.name,
     role: current.role || user.role,
     phone: current.phone || user.phone,

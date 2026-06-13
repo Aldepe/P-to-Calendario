@@ -83,8 +83,15 @@ export class SupabaseRepository {
   }
 
   async save(state) {
-    const normalized = normalizeState(state);
+    let normalized = normalizeState(state);
     try {
+      const identities = await resolveParticipantIdentities(this.client, normalized.participants);
+      normalized = normalizeState({
+        ...normalized,
+        participants: identities.participants,
+        campaigns: rewriteCampaignDmIds(normalized.campaigns, identities.idMap)
+      });
+
       for (const campaign of normalized.campaigns) {
         await assertSupabaseResult(this.client.from("campaigns").upsert(campaignRow(campaign)), `guardar campana ${campaign.name}`);
       }
@@ -120,10 +127,14 @@ export class SupabaseRepository {
   }
 
   async saveParticipant(participant, state) {
-    const normalized = upsertParticipantInState(state, participant);
-    const normalizedParticipant = findParticipant(normalized.participants, participant);
+    let normalized = upsertParticipantInState(state, participant);
+    let normalizedParticipant = findParticipant(normalized.participants, participant);
 
     try {
+      const identities = await resolveParticipantIdentities(this.client, [normalizedParticipant]);
+      normalizedParticipant = identities.participants[0];
+      normalized = upsertParticipantInState(normalized, normalizedParticipant);
+
       await assertSupabaseResult(
         this.client.from("participants").upsert(participantRow(normalizedParticipant), { onConflict: "id" }),
         `guardar disponibilidad de ${normalizedParticipant.name}`
@@ -177,6 +188,38 @@ function findParticipant(participants, participant) {
   return participants.find((item) => item.id === participant.id)
     || participants.find((item) => item.name.toLowerCase() === String(participant.name || "").toLowerCase())
     || participants[participants.length - 1];
+}
+
+async function resolveParticipantIdentities(client, participants) {
+  const resolved = [];
+  const idMap = new Map();
+
+  for (const participant of participants) {
+    const result = await client
+      .from("participants")
+      .select("id")
+      .eq("name", participant.name)
+      .limit(1);
+    await assertSupabaseResult(result, `resolver participante ${participant.name}`);
+
+    const remoteId = result.data?.[0]?.id;
+    if (remoteId && remoteId !== participant.id) {
+      idMap.set(participant.id, remoteId);
+      resolved.push({ ...participant, id: remoteId });
+    } else {
+      resolved.push(participant);
+    }
+  }
+
+  return { participants: resolved, idMap };
+}
+
+function rewriteCampaignDmIds(campaigns, idMap) {
+  if (!idMap.size) return campaigns;
+  return campaigns.map((campaign) => ({
+    ...campaign,
+    dmIds: [...new Set(campaign.dmIds.map((id) => idMap.get(id) || id))]
+  }));
 }
 
 function normalizeStoredParticipant(participant, campaigns) {
