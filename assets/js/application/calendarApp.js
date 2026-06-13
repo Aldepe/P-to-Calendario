@@ -42,6 +42,7 @@ export class CalendarApp {
     await this.ensureCurrentParticipant();
     this.renderAuthState();
     this.render();
+    if (this.currentUser) this.selectTab("calendar");
   }
 
   bindAuth() {
@@ -57,6 +58,7 @@ export class CalendarApp {
         this.renderEditor();
         this.renderAuthState();
         this.render();
+        this.selectTab("calendar");
       });
     });
 
@@ -68,6 +70,7 @@ export class CalendarApp {
         this.renderEditor();
         this.renderAuthState();
         this.render();
+        this.selectTab("calendar");
       });
     });
 
@@ -80,7 +83,7 @@ export class CalendarApp {
   }
 
   bindTabs() {
-    document.querySelectorAll(".tab").forEach((button) => {
+    document.querySelectorAll("[data-tab]").forEach((button) => {
       button.addEventListener("click", () => this.selectTab(button.dataset.tab));
     });
   }
@@ -130,6 +133,7 @@ export class CalendarApp {
       const campaign = createCampaign(name, this.state.campaigns);
       campaign.dmIds = [this.currentUser.id];
       this.state.campaigns.push(campaign);
+      this.syncDmCampaignMembership(campaign.id, campaign.dmIds);
       event.currentTarget.reset();
       await this.persistAndRender("Campana anadida.");
     });
@@ -151,7 +155,7 @@ export class CalendarApp {
   }
 
   selectTab(tabId) {
-    document.querySelectorAll(".tab, .view").forEach((node) => node.classList.remove("is-active"));
+    document.querySelectorAll("[data-tab], .view").forEach((node) => node.classList.remove("is-active"));
     document.querySelector(`.tab[data-tab="${tabId}"]`)?.classList.add("is-active");
     byId(tabId)?.classList.add("is-active");
   }
@@ -583,19 +587,42 @@ export class CalendarApp {
   }
 
   async saveCampaign(campaignId) {
-    const campaign = this.state.campaigns.find((item) => item.id === campaignId);
-    if (!campaign) return;
-    campaign.name = document.querySelector(`[data-campaign-name="${campaignId}"]`)?.value?.trim() || campaign.name;
-    campaign.dmIds = [...document.querySelectorAll(`[data-campaign-dm="${campaignId}"]:checked`)].map((input) => input.value);
-    this.state.campaigns = normalizeCampaigns(this.state.campaigns, this.state.participants);
-    await this.persistAndRender("Campana actualizada.");
+    try {
+      const campaign = this.state.campaigns.find((item) => item.id === campaignId);
+      if (!campaign) return;
+      campaign.name = document.querySelector(`[data-campaign-name="${campaignId}"]`)?.value?.trim() || campaign.name;
+      campaign.dmIds = [...document.querySelectorAll(`[data-campaign-dm="${campaignId}"]:checked`)].map((input) => input.value);
+      this.syncDmCampaignMembership(campaignId, campaign.dmIds);
+      this.state.campaigns = normalizeCampaigns(this.state.campaigns, this.state.participants);
+      this.state.sessions = this.state.sessions.map((session) => session.campaignId === campaignId ? { ...session, campaignName: campaign.name } : session);
+      await this.persistAndRender("Campana actualizada.");
+    } catch (error) {
+      this.setToast(`No se pudo guardar la campana: ${error.message || error}`);
+      this.render();
+    }
   }
 
   async deleteCampaign(campaignId) {
-    this.state.campaigns = this.state.campaigns.filter((campaign) => campaign.id !== campaignId);
-    this.state.participants = removeCampaignFromParticipants(this.state.participants, campaignId, this.state.campaigns);
-    this.state.sessions = this.state.sessions.filter((session) => session.campaignId !== campaignId);
-    await this.persistAndRender("Campana borrada.");
+    try {
+      this.state.campaigns = this.state.campaigns.filter((campaign) => campaign.id !== campaignId);
+      this.state.participants = removeCampaignFromParticipants(this.state.participants, campaignId, this.state.campaigns);
+      this.state.sessions = this.state.sessions.filter((session) => session.campaignId !== campaignId);
+      await this.persistAndRender("Campana borrada.");
+    } catch (error) {
+      this.setToast(`No se pudo borrar la campana: ${error.message || error}`);
+      this.render();
+    }
+  }
+
+  syncDmCampaignMembership(campaignId, selectedDmIds) {
+    const selected = new Set(selectedDmIds);
+    this.state.participants = this.state.participants.map((participant) => {
+      if (participant.role !== "dm") return participant;
+      const campaignIds = new Set(participant.campaignIds || []);
+      if (selected.has(participant.id)) campaignIds.add(campaignId);
+      else campaignIds.delete(campaignId);
+      return { ...participant, campaignIds: normalizeCampaignIds([...campaignIds], this.state.campaigns) };
+    });
   }
 
   async confirmSession(proposal) {
