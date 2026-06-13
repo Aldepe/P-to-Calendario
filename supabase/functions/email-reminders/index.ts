@@ -46,7 +46,15 @@ Deno.serve(async (request) => {
   const pendingRecipients = pending.filter((participant) => !wasReminderSentToday(participant, today));
   const pendingNames = pending.map((participant) => participant.name).join(", ") || "nadie";
   const testRecipient = payload?.testRecipient?.email ? payload.testRecipient : null;
-  const recipients = testRecipient ? [testRecipient] : pendingRecipients;
+  const targetParticipantId = typeof payload?.participantId === "string" ? payload.participantId : "";
+  const targetParticipant = targetParticipantId ? pending.find((participant) => participant.id === targetParticipantId) || null : null;
+  const targetAlreadySent = targetParticipant ? wasReminderSentToday(targetParticipant, today) : false;
+  const targetCompleted = Boolean(targetParticipantId && !targetParticipant);
+  const recipients = testRecipient
+    ? [testRecipient]
+    : targetParticipantId
+      ? targetParticipant && !targetAlreadySent ? [targetParticipant] : []
+      : pendingRecipients;
   const statusRows = participants.map((participant) => participantStatus(participant, requiredUntil, today));
   const failures = [];
   const providers = new Set<string>();
@@ -74,7 +82,7 @@ Deno.serve(async (request) => {
     }
 
     sent += 1;
-    if (!testRecipient) await markReminderSent(recipient.id, recipient.availability_by_week || {}, today);
+    if (!testRecipient && "id" in recipient) await markReminderSent(recipient.id, recipient.availability_by_week || {}, today);
   }
 
   return jsonResponse({
@@ -85,6 +93,9 @@ Deno.serve(async (request) => {
     failures,
     providers: [...providers],
     test: Boolean(testRecipient),
+    targetParticipantId,
+    targetAlreadySent,
+    targetCompleted,
     weekKey,
     requiredUntil,
     pendingNames

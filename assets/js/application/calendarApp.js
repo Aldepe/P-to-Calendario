@@ -158,8 +158,10 @@ export class CalendarApp {
 
   async ensureCurrentParticipant() {
     if (!this.currentUser) return;
-    this.upsertParticipant(participantFromUser(this.currentUser, this.findCurrentParticipant(), this.state.campaigns));
+    const existing = this.findCurrentParticipant();
+    this.upsertParticipant(participantFromUser(this.currentUser, existing, this.state.campaigns));
     this.state = await this.repository.save(this.state);
+    if (!existing && this.currentUser.email) await this.sendInitialReminder();
   }
 
   findCurrentParticipant() {
@@ -207,7 +209,7 @@ export class CalendarApp {
         const prefix = `${dayKey}.${slot.id}`;
         availability[dayKey][slot.id] = {
           available: data.get(`${prefix}.available`) === "on",
-          mode: String(data.get(`${prefix}.mode`) || "online"),
+          mode: String(data.get(`${prefix}.mode`) || "cualquiera"),
           reason: String(data.get(`${prefix}.reason`) || "").trim()
         };
       }
@@ -257,7 +259,7 @@ export class CalendarApp {
         <span class="mini-label">Cuenta activa</span>
         <strong>${escapeHtml(participant.name)}</strong>
       </div>
-      <p>${participant.role === "dm" ? "DM" : "Player"} · ${escapeHtml(participant.email || "sin email")} · ${escapeHtml(campaigns)}</p>
+      <p>${participant.role === "dm" ? "DM" : "Player"} - ${escapeHtml(participant.email || "sin email")} - ${escapeHtml(campaigns || "sin campanas")}</p>
     `;
   }
 
@@ -359,13 +361,13 @@ export class CalendarApp {
   applyCurrentAvailability() {
     const participant = this.findCurrentParticipant();
     if (!participant) return;
-    byId("filledUntil").value = participant.filledUntil || "";
+    byId("filledUntil").value = participant.filledUntil || addDaysIso(this.weekStart, 6);
     const availability = this.availabilityForWeek(participant);
     for (const [dayKey] of DAYS) {
       for (const slot of SLOTS) {
         const entry = availability?.[dayKey]?.[slot.id] || {};
         setField(`${dayKey}.${slot.id}.available`, Boolean(entry.available));
-        setField(`${dayKey}.${slot.id}.mode`, entry.mode || "online");
+        setField(`${dayKey}.${slot.id}.mode`, entry.mode || "cualquiera");
         setField(`${dayKey}.${slot.id}.reason`, entry.reason || "");
       }
     }
@@ -480,7 +482,9 @@ export class CalendarApp {
   }
 
   renderSessions() {
-    const proposals = findSessionCandidates(this.participantsForWeek(), this.state.campaigns, this.weekStart);
+    const today = todayIso();
+    const proposals = findSessionCandidates(this.participantsForWeek(), this.state.campaigns, this.weekStart)
+      .filter((proposal) => proposal.date >= today);
     this.renderProposalList(proposals);
     this.renderConfirmedSessions();
   }
@@ -499,7 +503,7 @@ export class CalendarApp {
             <span class="mini-label">${escapeHtml(proposal.campaignName)}</span>
             <strong>${proposal.dayLabel}, ${formatDate(proposal.date)}</strong>
           </div>
-          <span>${proposal.slot.label} · ${proposal.slot.time}</span>
+          <span>${proposal.slot.label} - ${proposal.slot.time}</span>
         </div>
         <div class="odds-strip">
           <span>${icon("dm")}DM: ${formatPeople(proposal.availableDms)}</span>
@@ -515,8 +519,11 @@ export class CalendarApp {
 
   renderConfirmedSessions() {
     const confirmedList = byId("confirmedList");
-    confirmedList.innerHTML = this.state.sessions.length ? "" : `<p class="empty">Aun no hay sesiones cerradas.</p>`;
-    this.state.sessions
+    const today = todayIso();
+    const weekEnd = addDaysIso(this.weekStart, 6);
+    const sessions = this.state.sessions.filter((session) => session.date >= today && session.date >= this.weekKey() && session.date <= weekEnd);
+    confirmedList.innerHTML = sessions.length ? "" : `<p class="empty">Aun no hay sesiones cerradas.</p>`;
+    sessions
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
       .forEach((session) => {
@@ -528,9 +535,9 @@ export class CalendarApp {
               <span class="mini-label">${escapeHtml(session.campaignName)}</span>
               <strong>${formatDate(session.date)}</strong>
             </div>
-            <span>${escapeHtml(session.slotLabel)} · ${escapeHtml(session.slotTime)}</span>
+            <span>${escapeHtml(session.slotLabel)} - ${escapeHtml(session.slotTime)}</span>
           </div>
-          <p>DM: ${escapeHtml(session.dmNames.join(", "))} · Ausentes: ${escapeHtml(session.absentPlayerNames.join(", ") || "nadie")}</p>
+          <p>DM: ${escapeHtml(session.dmNames.join(", "))} - Ausentes: ${escapeHtml(session.absentPlayerNames.join(", ") || "nadie")}</p>
           <p>Confirmada por ${escapeHtml(session.createdBy || "DM")}</p>
           ${this.currentUser?.role === "dm" ? `<button class="ghost-button danger" type="button" data-cancel-session="${session.id}">Desconfirmar</button>` : ""}
         `;
@@ -593,62 +600,83 @@ export class CalendarApp {
 
   async confirmSession(proposal) {
     if (this.currentUser?.role !== "dm") return;
-    const duplicate = this.state.sessions.some((session) => session.campaignId === proposal.campaignId && session.date === proposal.date && session.slotId === proposal.slot.id);
-    if (duplicate) {
-      this.setToast("Esa campana ya esta confirmada en esa franja.");
-      return;
+    try {
+      const duplicate = this.state.sessions.some((session) => session.campaignId === proposal.campaignId && session.date === proposal.date && session.slotId === proposal.slot.id);
+      if (duplicate) {
+        this.setToast("Esa campana ya esta confirmada en esa franja.");
+        return;
+      }
+      const session = {
+        id: crypto.randomUUID(),
+        campaignId: proposal.campaignId,
+        campaignName: proposal.campaignName,
+        date: proposal.date,
+        dayKey: proposal.dayKey,
+        slotId: proposal.slot.id,
+        slotLabel: proposal.slot.label,
+        slotTime: proposal.slot.time,
+        dmNames: proposal.availableDms.map((participant) => participant.name),
+        absentPlayerNames: proposal.unavailablePlayers.map((participant) => participant.name),
+        createdBy: this.currentUser.name,
+        details: buildSessionDetails(proposal)
+      };
+      this.state.sessions.push(session);
+      this.state = await this.repository.save(this.state);
+      const result = await this.notificationGateway.sendSessionConfirmed({
+        eventType: "confirmed",
+        session,
+        confirmedBy: this.currentUser,
+        recipients: uniqueRecipients([...proposal.players, ...proposal.assignedDms])
+      });
+      this.setToast(`Aviso enviado a ${result.sent || 0} persona(s).`);
+      this.render();
+    } catch (error) {
+      this.setToast(`No se pudo confirmar: ${error.message || error}`);
+      this.render();
     }
-    const session = {
-      id: crypto.randomUUID(),
-      campaignId: proposal.campaignId,
-      campaignName: proposal.campaignName,
-      date: proposal.date,
-      dayKey: proposal.dayKey,
-      slotId: proposal.slot.id,
-      slotLabel: proposal.slot.label,
-      slotTime: proposal.slot.time,
-      dmNames: proposal.availableDms.map((participant) => participant.name),
-      absentPlayerNames: proposal.unavailablePlayers.map((participant) => participant.name),
-      createdBy: this.currentUser.name,
-      details: buildSessionDetails(proposal)
-    };
-    this.state.sessions.push(session);
-    await this.repository.save(this.state);
-    const result = await this.notificationGateway.sendSessionConfirmed({
-      eventType: "confirmed",
-      session,
-      confirmedBy: this.currentUser,
-      recipients: proposal.players
-    });
-    this.setToast(`Aviso enviado a ${result.sent || 0} player(s).`);
-    this.render();
   }
 
   async cancelSession(sessionId) {
     if (this.currentUser?.role !== "dm") return;
-    const session = this.state.sessions.find((item) => item.id === sessionId);
-    if (!session) return;
-    const recipients = getCampaignPlayers(this.state.participants, session.campaignId, this.state.campaigns);
-    const sessionWeek = getWeekStart(parseLocalIsoDate(session.date));
-    const participants = this.participantsForWeek(sessionWeek);
-    const campaign = this.state.campaigns.find((item) => item.id === session.campaignId);
-    const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(session.campaignId));
-    const dms = participants.filter((participant) => participant.role === "dm" && campaign?.dmIds.includes(participant.id));
-    const enrichedSession = {
-      ...session,
-      cancelledBy: this.currentUser.name,
-      details: session.details || buildSessionDetailsFromStoredSession(session, players, dms)
-    };
-    this.state.sessions = this.state.sessions.filter((item) => item.id !== sessionId);
-    await this.repository.save(this.state);
-    const result = await this.notificationGateway.sendSessionCancelled({
-      eventType: "cancelled",
-      session: enrichedSession,
-      cancelledBy: this.currentUser,
-      recipients
-    });
-    this.setToast(`Cancelacion enviada a ${result.sent || 0} player(s).`);
-    this.render();
+    try {
+      const session = this.state.sessions.find((item) => item.id === sessionId);
+      if (!session) return;
+      const sessionWeek = getWeekStart(parseLocalIsoDate(session.date));
+      const participants = this.participantsForWeek(sessionWeek);
+      const campaign = this.state.campaigns.find((item) => item.id === session.campaignId);
+      const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(session.campaignId));
+      const dms = participants.filter((participant) => participant.role === "dm" && campaign?.dmIds.includes(participant.id));
+      const recipients = uniqueRecipients([...getCampaignPlayers(this.state.participants, session.campaignId, this.state.campaigns), ...dms]);
+      const enrichedSession = {
+        ...session,
+        cancelledBy: this.currentUser.name,
+        details: session.details || buildSessionDetailsFromStoredSession(session, players, dms)
+      };
+      this.state.sessions = this.state.sessions.filter((item) => item.id !== sessionId);
+      this.state = await this.repository.save(this.state);
+      const result = await this.notificationGateway.sendSessionCancelled({
+        eventType: "cancelled",
+        session: enrichedSession,
+        cancelledBy: this.currentUser,
+        recipients
+      });
+      this.setToast(`Cancelacion enviada a ${result.sent || 0} persona(s).`);
+      this.render();
+    } catch (error) {
+      this.setToast(`No se pudo desconfirmar: ${error.message || error}`);
+      this.render();
+    }
+  }
+
+  async sendInitialReminder() {
+    const participant = this.findCurrentParticipant();
+    if (!participant?.email) return;
+    try {
+      const result = await this.notificationGateway.sendReminderForParticipant(participant);
+      if (result.sent) this.setToast("Cuenta creada. Te he enviado el recordatorio inicial.");
+    } catch (error) {
+      console.warn("No se pudo enviar el recordatorio inicial.", error);
+    }
   }
 
   async sendReminderTest() {
@@ -668,7 +696,7 @@ export class CalendarApp {
     const session = {
       id: crypto.randomUUID(),
       campaignId: "test",
-      campaignName: "Prueba de campaña",
+      campaignName: "Prueba de campana",
       date: addDaysIso(this.weekStart, 2),
       dayKey: "wednesday",
       slotId: "evening",
@@ -828,7 +856,7 @@ function participantSessionDetail(participant, dayKey, slotId) {
     name: participant.name,
     email: participant.email || "",
     available: Boolean(slot.available),
-    mode: slot.mode || "online",
+    mode: slot.mode || "cualquiera",
     reason: String(slot.reason || "").trim()
   };
 }
@@ -865,15 +893,19 @@ function reasonFor(participant, dayKey, slotId) {
 }
 
 function slotBlockReasonShort(campaigns, participants, dayKey, slotId) {
-  for (const campaign of campaigns) {
+  const statuses = campaigns.map((campaign) => {
     const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(campaign.id));
     const assignedDms = participants.filter((participant) => participant.role === "dm" && campaign.dmIds.includes(participant.id));
     const availableDms = assignedDms.filter((participant) => participant.availability?.[dayKey]?.[slotId]?.available);
     const missingPlayers = players.filter((participant) => !participant.availability?.[dayKey]?.[slotId]?.available);
-    if (!assignedDms.length || !availableDms.length) return "Falta DM";
-    if (missingPlayers.length > 2) return `${missingPlayers.length} fuera`;
-  }
-  return "Sin hueco";
+    if (!players.length) return `${campaign.name}: sin players`;
+    if (!assignedDms.length) return `${campaign.name}: sin DM`;
+    if (!availableDms.length) return `${campaign.name}: falta DM`;
+    if (missingPlayers.length > 2) return `${campaign.name}: ${missingPlayers.length} fuera`;
+    return `${campaign.name}: viable`;
+  });
+  const blocked = statuses.filter((status) => !status.endsWith(": viable"));
+  return (blocked.length ? blocked : statuses).slice(0, 2).join(" / ") || "Sin hueco";
 }
 
 function chip(label) {
@@ -902,6 +934,24 @@ function compactTime(time) {
 
 function formatDate(value) {
   return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(parseLocalIsoDate(value));
+}
+
+function todayIso() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function uniqueRecipients(recipients) {
+  const seen = new Set();
+  return recipients.filter((recipient) => {
+    const key = recipient.email || recipient.id || recipient.name;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function escapeHtml(value) {

@@ -44,7 +44,7 @@ export class SupabaseRepository {
           email: row.email || "",
           phone: row.phone,
           campaignIds: row.campaign_ids || [],
-          filledUntil: row.filled_until,
+          filledUntil: normalizeFilledUntil(row.filled_until),
           availability: row.availability,
           availabilityByWeek: row.availability_by_week || {}
         })),
@@ -157,7 +157,7 @@ function normalizeStoredParticipant(participant, campaigns) {
     email: participant.email || "",
     phone: participant.phone || "",
     campaignIds: normalizeCampaignIds(participant.campaignIds, campaigns),
-    filledUntil: participant.filledUntil || "",
+    filledUntil: normalizeFilledUntil(participant.filledUntil),
     availability,
     availabilityByWeek
   };
@@ -192,4 +192,8 @@ async function deleteRowsNotInState(client, table, keepIds) {
 
 function hasRealWeekData(availabilityByWeek) {
   return Object.keys(availabilityByWeek).some((key) => !key.startsWith("__"));
+}
+
+function normalizeFilledUntil(value) {
+  return !value || value === "1970-01-01" ? "" : value;
 }

@@ -21,7 +21,7 @@ export function createEmptyAvailability() {
   return Object.fromEntries(
     DAYS.map(([day]) => [
       day,
-      Object.fromEntries(SLOTS.map((slot) => [slot.id, { available: false, mode: "online", reason: "" }]))
+      Object.fromEntries(SLOTS.map((slot) => [slot.id, { available: true, mode: "cualquiera", reason: "" }]))
     ])
   );
 }
@@ -49,7 +49,8 @@ export function findSessionCandidates(participants, campaignsOrWeekStart, maybeW
         const availableDms = assignedDms.filter((participant) => participant.availability?.[dayKey]?.[slot.id]?.available);
         const availablePlayers = campaignPlayers.filter((participant) => participant.availability?.[dayKey]?.[slot.id]?.available);
         const unavailablePlayers = campaignPlayers.filter((participant) => !participant.availability?.[dayKey]?.[slot.id]?.available);
-        const isValid = availableDms.length > 0 && unavailablePlayers.length <= 2;
+        const missingPlayers = campaignPlayers.length - availablePlayers.length;
+        const isValid = availableDms.length > 0 && missingPlayers <= 2;
 
         if (isValid) {
           candidates.push({
@@ -66,6 +67,7 @@ export function findSessionCandidates(participants, campaignsOrWeekStart, maybeW
             availableDms,
             availablePlayers,
             unavailablePlayers,
+            missingPlayers,
             score: availablePlayers.length * 3 + availableDms.length * 2 - unavailablePlayers.length * 2
           });
         }
@@ -103,7 +105,7 @@ export function addDaysIso(baseDate, days) {
 }
 
 export function isFilledForCurrentWeek(filledUntil, weekStart = getWeekStart()) {
-  if (!filledUntil) return false;
+  if (!filledUntil || filledUntil === "1970-01-01") return false;
   const sunday = new Date(weekStart);
   sunday.setDate(sunday.getDate() + 6);
   return parseLocalIsoDate(filledUntil) >= sunday;
@@ -207,8 +209,10 @@ export function toLocalIsoDate(date) {
 }
 
 function inferDmAssignments(campaigns, participants) {
+  const realDmIds = new Set(participants.filter((participant) => participant.role === "dm").map((participant) => participant.id));
   return campaigns.map((campaign) => {
-    if (campaign.dmIds.length) return campaign;
+    const validDmIds = campaign.dmIds.filter((id) => realDmIds.has(id));
+    if (validDmIds.length) return { ...campaign, dmIds: validDmIds };
     const dmIds = participants
       .filter((participant) => participant.role === "dm" && Array.isArray(participant.campaignIds) && participant.campaignIds.includes(campaign.id))
       .map((participant) => participant.id);

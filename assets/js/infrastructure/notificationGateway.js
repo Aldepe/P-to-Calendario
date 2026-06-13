@@ -14,6 +14,11 @@ export class ConsoleNotificationGateway {
     return { mode: "local", sent: payload.recipient?.email ? 1 : 0 };
   }
 
+  async sendReminderForParticipant(payload) {
+    console.info("Recordatorio inicial local", payload);
+    return { mode: "local", sent: payload?.email ? 1 : 0 };
+  }
+
   async sendSessionTest(payload) {
     return this.sendSessionConfirmed({
       session: payload.session,
@@ -50,10 +55,16 @@ export class SupabaseNotificationGateway {
   }
 
   async sendSessionCancelled(payload) {
-    return this.sendSessionLifecycle({
-      ...payload,
-      eventType: "cancelled"
-    });
+    try {
+      return await this.sendSessionLifecycle({
+        ...payload,
+        eventType: "cancelled"
+      });
+    } catch (error) {
+      if (!this.fallback) throw error;
+      console.warn("Cancelacion remota fallida, usando salida local.", error);
+      return this.fallback.sendSessionCancelled(payload);
+    }
   }
 
   async sendSessionLifecycle(payload) {
@@ -77,6 +88,17 @@ export class SupabaseNotificationGateway {
     return data;
   }
 
+  async sendReminderForParticipant(participant) {
+    const { data, error } = await this.client.functions.invoke("email-reminders", {
+      body: {
+        participantId: participant.id
+      }
+    });
+    if (error) throw error;
+    assertEmailResult(data, { allowZero: true });
+    return data;
+  }
+
   async sendSessionTest(payload) {
     const { data, error } = await this.client.functions.invoke("email-session-confirmed", {
       body: {
@@ -91,12 +113,12 @@ export class SupabaseNotificationGateway {
   }
 }
 
-function assertEmailResult(data) {
+function assertEmailResult(data, options = {}) {
   const failures = Array.isArray(data?.failures) ? data.failures : [];
   if (failures.length) {
     throw new Error(failures.map((failure) => failure.message || failure.email || String(failure)).join(" | "));
   }
-  if (!data || Number(data.sent || 0) <= 0) {
+  if (!options.allowZero && (!data || Number(data.sent || 0) <= 0)) {
     throw new Error("La funcion respondio, pero no envio ningun email.");
   }
 }
