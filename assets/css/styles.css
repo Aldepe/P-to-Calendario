@@ -186,6 +186,34 @@ h3 {
   background: transparent;
 }
 
+.primary-button:disabled,
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.primary-button.is-loading,
+.ghost-button.is-loading {
+  cursor: progress;
+  opacity: 0.86;
+}
+
+.primary-button.is-loading .ui-icon,
+.ghost-button.is-loading .ui-icon {
+  --icon: "";
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  background: transparent;
+  animation: button-spin 0.72s linear infinite;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .danger,
 .critical-field,
 .critical-field input {

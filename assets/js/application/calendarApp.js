@@ -2,7 +2,6 @@ import { buildLoginCredentials, buildSignupProfile } from "../domain/authRules.j
 import { buildReminderPreview } from "../domain/notificationMessages.js";
 import {
   DAYS,
-  SLOTS,
   addDaysIso,
   campaignName,
   createCampaign,
@@ -14,7 +13,8 @@ import {
   normalizeCampaigns,
   normalizeParticipant,
   parseLocalIsoDate,
-  removeCampaignFromParticipants
+  removeCampaignFromParticipants,
+  slotsForDay
 } from "../domain/sessionRules.js";
 
 const byId = (id) => document.getElementById(id);
@@ -115,9 +115,16 @@ export class CalendarApp {
     byId("availabilityForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!this.currentUser) return;
-      this.upsertParticipant(this.participantFromAvailability(new FormData(event.currentTarget)));
-      await this.persistAndRender("Disponibilidad guardada.");
-      this.renderEditor();
+      const form = event.currentTarget;
+      try {
+        await this.runWithButtonLoading(form.querySelector("#saveAvailability"), "Guardando...", async () => {
+          this.upsertParticipant(this.participantFromAvailability(new FormData(form)));
+          await this.persistAndRender("Disponibilidad guardada.");
+          this.renderEditor();
+        });
+      } catch (error) {
+        this.setToast(`No se pudo guardar: ${error.message || error}`);
+      }
     });
 
     byId("recalculate").addEventListener("click", () => this.renderSessions());
@@ -208,7 +215,7 @@ export class CalendarApp {
     const current = this.findCurrentParticipant() || participantFromUser(this.currentUser, {}, this.state.campaigns);
     const availability = createEmptyAvailability();
     for (const [dayKey] of DAYS) {
-      for (const slot of SLOTS) {
+      for (const slot of slotsForDay(dayKey)) {
         const prefix = `${dayKey}.${slot.id}`;
         availability[dayKey][slot.id] = {
           available: data.get(`${prefix}.available`) === "on",
@@ -285,7 +292,7 @@ export class CalendarApp {
       const group = document.createElement("section");
       group.className = "day-editor";
       group.innerHTML = `<h3><span>${dayLabel}</span><small>${formatDate(date)}</small></h3>`;
-      for (const slot of SLOTS) {
+      for (const slot of slotsForDay(dayKey)) {
         const node = template.content.cloneNode(true);
         node.querySelector("[data-slot-label]").textContent = slot.label;
         node.querySelector("[data-slot-time]").textContent = slot.time;
@@ -325,7 +332,7 @@ export class CalendarApp {
         const dayIndex = DAYS.findIndex(([key]) => key === dayKey);
         const date = addDaysIso(weekStart, dayIndex);
         const dateObj = parseLocalIsoDate(date);
-        const entries = SLOTS.map((slot) => ({ slot, entry: availability?.[dayKey]?.[slot.id] || {} }));
+        const entries = slotsForDay(dayKey).map((slot) => ({ slot, entry: availability?.[dayKey]?.[slot.id] || {} }));
         const day = document.createElement("section");
         day.className = `month-day fill-month-day ${dateObj.getMonth() !== selected.getMonth() ? "is-outside-month" : ""}`;
         day.innerHTML = `
@@ -358,7 +365,7 @@ export class CalendarApp {
     byId("filledUntil").value = participant.filledUntil || addDaysIso(this.weekStart, 6);
     const availability = this.availabilityForWeek(participant);
     for (const [dayKey] of DAYS) {
-      for (const slot of SLOTS) {
+      for (const slot of slotsForDay(dayKey)) {
         const entry = availability?.[dayKey]?.[slot.id] || {};
         setField(`${dayKey}.${slot.id}.available`, Boolean(entry.available));
         setField(`${dayKey}.${slot.id}.mode`, entry.mode || "cualquiera");
@@ -398,7 +405,7 @@ export class CalendarApp {
       const column = document.createElement("article");
       column.className = "day-card";
       column.innerHTML = `<h3>${dayLabel}<small>${formatDate(date)}</small></h3>`;
-      for (const slot of SLOTS) {
+      for (const slot of slotsForDay(dayKey)) {
         const available = participants.filter((participant) => participant.availability?.[dayKey]?.[slot.id]?.available);
         const blocked = participants.filter((participant) => !participant.availability?.[dayKey]?.[slot.id]?.available);
         const confirmed = this.state.sessions.filter((session) => session.date === date && session.slotId === slot.id);
@@ -443,7 +450,7 @@ export class CalendarApp {
         day.className = `month-day ${dateObj.getMonth() !== selected.getMonth() ? "is-outside-month" : ""}`;
         day.innerHTML = `<div class="month-day-head"><strong>${dayLabel.slice(0, 3)}</strong><span>${formatDate(date)}</span></div>`;
 
-        for (const slot of SLOTS) {
+        for (const slot of slotsForDay(dayKey)) {
           const available = participants.filter((participant) => participant.availability?.[dayKey]?.[slot.id]?.available);
           const blocked = participants.filter((participant) => !participant.availability?.[dayKey]?.[slot.id]?.available);
           const confirmed = this.state.sessions.filter((session) => session.date === date && session.slotId === slot.id);
@@ -570,22 +577,24 @@ export class CalendarApp {
           <button class="ghost-button danger" type="button" data-delete-campaign="${campaign.id}" ${isDm ? "" : "disabled"}>Borrar</button>
         </div>
       `;
-      item.querySelector("[data-save-campaign]")?.addEventListener("click", () => this.saveCampaign(campaign.id));
+      item.querySelector("[data-save-campaign]")?.addEventListener("click", (event) => this.saveCampaign(campaign.id, event.currentTarget));
       item.querySelector("[data-delete-campaign]")?.addEventListener("click", () => this.deleteCampaign(campaign.id));
       container.appendChild(item);
     });
   }
 
-  async saveCampaign(campaignId) {
+  async saveCampaign(campaignId, trigger = null) {
     try {
-      const campaign = this.state.campaigns.find((item) => item.id === campaignId);
-      if (!campaign) return;
-      campaign.name = document.querySelector(`[data-campaign-name="${campaignId}"]`)?.value?.trim() || campaign.name;
-      campaign.dmIds = [...document.querySelectorAll(`[data-campaign-dm="${campaignId}"]:checked`)].map((input) => input.value);
-      this.syncDmCampaignMembership(campaignId, campaign.dmIds);
-      this.state.campaigns = normalizeCampaigns(this.state.campaigns, this.state.participants);
-      this.state.sessions = this.state.sessions.map((session) => session.campaignId === campaignId ? { ...session, campaignName: campaign.name } : session);
-      await this.persistAndRender("Campana actualizada.");
+      await this.runWithButtonLoading(trigger, "Guardando...", async () => {
+        const campaign = this.state.campaigns.find((item) => item.id === campaignId);
+        if (!campaign) return;
+        campaign.name = document.querySelector(`[data-campaign-name="${campaignId}"]`)?.value?.trim() || campaign.name;
+        campaign.dmIds = [...document.querySelectorAll(`[data-campaign-dm="${campaignId}"]:checked`)].map((input) => input.value);
+        this.syncDmCampaignMembership(campaignId, campaign.dmIds);
+        this.state.campaigns = normalizeCampaigns(this.state.campaigns, this.state.participants);
+        this.state.sessions = this.state.sessions.map((session) => session.campaignId === campaignId ? { ...session, campaignName: campaign.name } : session);
+        await this.persistAndRender("Campana actualizada.");
+      });
     } catch (error) {
       this.setToast(`No se pudo guardar la campana: ${error.message || error}`);
       this.render();
@@ -765,6 +774,28 @@ export class CalendarApp {
   setDiscordStatus(message) {
     byId("discordTestStatus").textContent = message || "";
     this.setToast(message || "");
+  }
+
+  async runWithButtonLoading(button, loadingLabel, action) {
+    const label = button?.querySelector("[data-button-label]") || button;
+    const previousLabel = label?.textContent || "";
+    if (button) {
+      button.disabled = true;
+      button.classList.add("is-loading");
+      button.setAttribute("aria-busy", "true");
+      if (label) label.textContent = loadingLabel;
+    }
+    this.setToast(loadingLabel);
+    try {
+      return await action();
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.classList.remove("is-loading");
+        button.removeAttribute("aria-busy");
+        if (label) label.textContent = previousLabel;
+      }
+    }
   }
 
   async persistAndRender(message) {

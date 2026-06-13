@@ -13,15 +13,23 @@ export const SLOTS = [
   { id: "evening", label: "Tarde", time: "18:00-22:00" }
 ];
 
+const WORKDAY_KEYS = new Set(["monday", "tuesday", "wednesday", "thursday", "friday"]);
+
 export const DEFAULT_CAMPAIGNS = [];
 
 export const CAMPAIGNS = DEFAULT_CAMPAIGNS;
+
+export function slotsForDay(dayKey) {
+  return WORKDAY_KEYS.has(dayKey)
+    ? SLOTS.filter((slot) => slot.id !== "morning")
+    : SLOTS;
+}
 
 export function createEmptyAvailability() {
   return Object.fromEntries(
     DAYS.map(([day]) => [
       day,
-      Object.fromEntries(SLOTS.map((slot) => [slot.id, { available: true, mode: "cualquiera", reason: "" }]))
+      Object.fromEntries(slotsForDay(day).map((slot) => [slot.id, { available: true, mode: "cualquiera", reason: "" }]))
     ])
   );
 }
@@ -45,7 +53,7 @@ export function findSessionCandidates(participants, campaignsOrWeekStart, maybeW
     if (campaignPlayers.length === 0 || assignedDms.length === 0) continue;
 
     for (const [dayKey, dayLabel] of DAYS) {
-      for (const slot of SLOTS) {
+      for (const slot of slotsForDay(dayKey)) {
         const availableDms = assignedDms.filter((participant) => participant.availability?.[dayKey]?.[slot.id]?.available);
         const availablePlayers = campaignPlayers.filter((participant) => participant.availability?.[dayKey]?.[slot.id]?.available);
         const unavailablePlayers = campaignPlayers.filter((participant) => !participant.availability?.[dayKey]?.[slot.id]?.available);
@@ -114,7 +122,7 @@ export function isFilledForCurrentWeek(filledUntil, weekStart = getWeekStart()) 
 export function isWeekComplete(participant, weekStart = getWeekStart()) {
   if (!isFilledForCurrentWeek(participant.filledUntil, weekStart)) return false;
   for (const [dayKey] of DAYS) {
-    for (const slot of SLOTS) {
+    for (const slot of slotsForDay(dayKey)) {
       const entry = participant.availability?.[dayKey]?.[slot.id];
       if (!entry) return false;
       if (!entry.available && !String(entry.reason || "").trim()) return false;
