@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>P*to Calendario</title>
+    <link rel="stylesheet" href="./assets/css/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-panel">
+        <div>
+          <p class="eyebrow">mesa semanal</p>
+          <h1>P*to Calendario</h1>
+        </div>
+        <div id="userPanel" class="user-panel" hidden>
+          <span id="userRole"></span>
+          <strong id="userName"></strong>
+          <button class="ghost-button compact" type="button" id="logoutButton">Salir</button>
+        </div>
+      </header>
+
+      <section id="authGate" class="auth-gate">
+        <div class="auth-card">
+          <div class="auth-switch" aria-label="Autenticacion">
+            <button class="tab is-active" type="button" data-auth-mode="login">Login</button>
+            <button class="tab" type="button" data-auth-mode="signup">Signup</button>
+          </div>
+
+          <form id="loginForm" class="auth-form">
+            <label>Nombre
+              <input name="loginName" autocomplete="username" required placeholder="DemoDM" />
+            </label>
+            <label>Contrasena
+              <input name="loginPassword" type="password" autocomplete="current-password" required placeholder="demo123" />
+            </label>
+            <button class="primary-button" type="submit">Entrar</button>
+            <div class="demo-logins">
+              <span class="mini-label">Demo local</span>
+              <p><b>DM:</b> DemoDM / demo123</p>
+              <p><b>Player:</b> DemoPlayer / demo123</p>
+            </div>
+          </form>
+
+          <form id="signupForm" class="auth-form" hidden>
+            <div class="panel-grid compact-grid">
+              <label>Nombre
+                <input name="signupName" autocomplete="name" required placeholder="Alex" />
+              </label>
+              <label>Email
+                <input name="signupEmail" type="email" autocomplete="email" required placeholder="tu@email.com" />
+              </label>
+              <label>Contrasena
+                <input name="signupPassword" type="password" autocomplete="new-password" required minlength="4" />
+              </label>
+              <label>Rol
+                <select name="signupRole" required>
+                  <option value="player">Player</option>
+                  <option value="dm">DM</option>
+                </select>
+              </label>
+            </div>
+            <div>
+              <span class="field-title">Campanas</span>
+              <div id="signupCampaigns" class="campaign-choice-grid"></div>
+            </div>
+            <button class="primary-button" type="submit">Crear cuenta</button>
+          </form>
+
+          <p id="authMessage" class="form-message" role="alert"></p>
+        </div>
+      </section>
+
+      <div id="appShell" hidden>
+        <nav class="tabs" aria-label="Secciones">
+          <button class="tab is-active" type="button" data-tab="calendar">Calendario</button>
+          <button class="tab" type="button" data-tab="fill">Rellenar</button>
+          <button class="tab" type="button" data-tab="sessions">Sesiones</button>
+          <button class="tab" type="button" data-tab="campaigns">Campanas</button>
+        </nav>
+
+        <main>
+          <p id="toast" class="toast" aria-live="polite"></p>
+
+          <section class="view is-active" id="calendar" aria-labelledby="calendar-title">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">semana actual</p>
+                <h2 id="calendar-title">Disponibilidad visible</h2>
+              </div>
+              <div class="week-controls">
+                <button class="icon-button" type="button" data-week="prev" aria-label="Semana anterior">&lt;</button>
+                <strong id="weekLabel"></strong>
+                <button class="icon-button" type="button" data-week="next" aria-label="Semana siguiente">&gt;</button>
+              </div>
+            </div>
+            <div class="view-toggle" aria-label="Vista calendario">
+              <button class="is-active" type="button" data-view-target="calendarGrid" data-view-mode="week">Semana</button>
+              <button type="button" data-view-target="calendarGrid" data-view-mode="calendar">Calendario</button>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </section>
+
+          <section class="view" id="fill" aria-labelledby="fill-title">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">tu semana</p>
+                <h2 id="fill-title">Rellenar disponibilidad</h2>
+              </div>
+              <div class="week-controls">
+                <button class="icon-button" type="button" data-week="prev" aria-label="Semana anterior">&lt;</button>
+                <strong id="fillWeekLabel"></strong>
+                <button class="icon-button" type="button" data-week="next" aria-label="Semana siguiente">&gt;</button>
+              </div>
+            </div>
+
+            <div class="profile-reminder-row">
+              <article id="currentProfileCard" class="profile-card"></article>
+              <article class="profile-card reminder-preview">
+                <span class="mini-label">Recordatorio diario</span>
+                <div id="reminderBadge" class="reminder-badge"></div>
+                <p id="reminderPreview"></p>
+              </article>
+            </div>
+
+            <form id="availabilityForm" class="form-layout">
+              <div class="panel-grid one-line-grid">
+                <label class="critical-field">Rellenado hasta
+                  <input id="filledUntil" name="filledUntil" type="date" required />
+                </label>
+              </div>
+
+              <div class="view-toggle" aria-label="Vista rellenar">
+                <button class="is-active" type="button" data-view-target="availabilityEditor" data-view-mode="week">Semana</button>
+                <button type="button" data-view-target="availabilityEditor" data-view-mode="calendar">Calendario</button>
+              </div>
+              <div id="availabilityEditor" class="availability-editor"></div>
+
+              <div class="form-actions">
+                <button class="primary-button" type="submit">Guardar disponibilidad</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="view" id="sessions" aria-labelledby="sessions-title">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">solo esta semana</p>
+                <h2 id="sessions-title">Sugerencias y confirmadas</h2>
+              </div>
+              <button class="primary-button" type="button" id="recalculate">Recalcular</button>
+            </div>
+            <div class="sessions-layout">
+              <div>
+                <h3>Sugerencias</h3>
+                <div id="proposalList" class="session-list"></div>
+              </div>
+              <div>
+                <h3>Confirmadas</h3>
+                <div id="confirmedList" class="session-list"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" id="campaigns" aria-labelledby="campaigns-title">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">gestion DM</p>
+                <h2 id="campaigns-title">Campanas</h2>
+              </div>
+            </div>
+            <form id="campaignForm" class="campaign-create">
+              <label>Nueva campana
+                <input name="campaignName" placeholder="Nombre de campana" />
+              </label>
+              <button class="primary-button" type="submit">Anadir</button>
+            </form>
+            <div id="campaignList" class="campaign-admin-list"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <template id="slotTemplate">
+      <article class="slot-row">
+        <div>
+          <strong data-slot-label></strong>
+          <small data-slot-time></small>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" data-field="available" />
+          <span>Disponible</span>
+        </label>
+        <label>Modalidad
+          <select data-field="mode">
+            <option value="online">Online</option>
+            <option value="presencial">Presencial</option>
+            <option value="cualquiera">Cualquiera</option>
+          </select>
+        </label>
+        <label>Motivo si no puedes
+          <input data-field="reason" placeholder="Trabajo, viaje, etc." />
+        </label>
+      </article>
+    </template>
+
+    <script>
+      window.DND_CALENDAR_CONFIG = {
+        supabaseUrl: "",
+        supabaseAnonKey: ""
+      };
+    </script>
+    <script type="module" src="./assets/js/main.js"></script>
+  </body>
+</html>
