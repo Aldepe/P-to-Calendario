@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { discordText, sendDiscord } from "../_shared/discordClient.ts";
 import { sendEmail } from "../_shared/emailClient.ts";
 
 type ParticipantRow = {
@@ -8,6 +9,13 @@ type ParticipantRow = {
   role: string | null;
   filled_until: string | null;
   availability_by_week: Record<string, unknown> | null;
+};
+
+type ReminderRecipient = {
+  id: string;
+  name: string;
+  email: string | null;
+  availability_by_week?: Record<string, unknown> | null;
 };
 
 const TIME_ZONE = Deno.env.get("APP_TIME_ZONE") || "Europe/Madrid";
@@ -45,13 +53,14 @@ Deno.serve(async (request) => {
   const alreadySentToday = pending.filter((participant) => wasReminderSentToday(participant, today));
   const pendingRecipients = pending.filter((participant) => !wasReminderSentToday(participant, today));
   const pendingNames = pending.map((participant) => participant.name).join(", ") || "nadie";
-  const testRecipient = payload?.testRecipient?.email ? payload.testRecipient : null;
+  const testRecipient = testRecipientFromPayload(payload);
+  const isTest = Boolean(payload?.test || testRecipient);
   const targetParticipantId = typeof payload?.participantId === "string" ? payload.participantId : "";
   const targetParticipant = targetParticipantId ? pending.find((participant) => participant.id === targetParticipantId) || null : null;
   const targetAlreadySent = targetParticipant ? wasReminderSentToday(targetParticipant, today) : false;
   const targetCompleted = Boolean(targetParticipantId && !targetParticipant);
-  const recipients = testRecipient
-    ? [testRecipient]
+  const recipients: ReminderRecipient[] = testRecipient
+    ? testRecipient.email ? [testRecipient] : []
     : targetParticipantId
       ? targetParticipant && !targetAlreadySent ? [targetParticipant] : []
       : pendingRecipients;
@@ -72,7 +81,7 @@ Deno.serve(async (request) => {
       today,
       appUrl,
       statusRows,
-      isTest: Boolean(testRecipient)
+      isTest
     });
     const result = await sendEmail({ to: recipient.email, subject: email.subject, html: email.html, text: email.text });
     providers.add(result.provider);
@@ -82,17 +91,33 @@ Deno.serve(async (request) => {
     }
 
     sent += 1;
-    if (!testRecipient && "id" in recipient) await markReminderSent(recipient.id, recipient.availability_by_week || {}, today);
+    if (!isTest && "availability_by_week" in recipient) await markReminderSent(recipient.id, recipient.availability_by_week || {}, today);
   }
+
+  const discordResult = await sendReminderDiscord({
+    pendingNames,
+    pendingCount: pending.length,
+    alreadySentCount: alreadySentToday.length,
+    requiredUntil,
+    weekKey,
+    today,
+    appUrl,
+    statusRows,
+    isTest,
+    shouldSend: isTest || recipients.length > 0
+  });
+  providers.add(discordResult.provider);
+  if (!discordResult.ok) failures.push({ email: "discord", message: discordResult.message, provider: discordResult.provider });
 
   return jsonResponse({
     sent,
+    discordSent: discordResult.sent ? 1 : 0,
     attempted: recipients.length,
     skippedAlreadySentToday: alreadySentToday.length,
     skippedCompleted: participants.length - pending.length,
     failures,
     providers: [...providers],
-    test: Boolean(testRecipient),
+    test: isTest,
     targetParticipantId,
     targetAlreadySent,
     targetCompleted,
@@ -109,6 +134,16 @@ async function readPayload(request: Request) {
   } catch {
     return {};
   }
+}
+
+function testRecipientFromPayload(payload: any): ReminderRecipient | null {
+  if (!payload?.test && !payload?.testRecipient) return null;
+  const source = payload?.testRecipient || {};
+  return {
+    id: source.id || "test-recipient",
+    name: source.name || "mesa",
+    email: source.email || ""
+  };
 }
 
 function needsReminder(participant: ParticipantRow, requiredUntil: string) {
@@ -232,6 +267,55 @@ function buildReminderEmail({
       appUrl
     })
   };
+}
+
+async function sendReminderDiscord({
+  pendingNames,
+  pendingCount,
+  alreadySentCount,
+  requiredUntil,
+  weekKey,
+  today,
+  appUrl,
+  statusRows,
+  isTest,
+  shouldSend
+}: {
+  pendingNames: string;
+  pendingCount: number;
+  alreadySentCount: number;
+  requiredUntil: string;
+  weekKey: string;
+  today: string;
+  appUrl: string;
+  statusRows: Array<{ name: string; role: string; filledUntil: string; status: string }>;
+  isTest: boolean;
+  shouldSend: boolean;
+}) {
+  if (!shouldSend) {
+    return { ok: true, sent: false, provider: "discord-skipped", message: "Sin destinatarios pendientes." };
+  }
+
+  return sendDiscord({
+    content: isTest ? "Prueba de recordatorio de P*to Calendario." : "Recordatorio de disponibilidad de P*to Calendario.",
+    embeds: [{
+      title: isTest ? "Prueba de recordatorio" : "Falta rellenar disponibilidad",
+      url: appUrl,
+      color: 0xd8ad3d,
+      fields: [
+        { name: "Semana", value: `${weekKey} - ${requiredUntil}`, inline: true },
+        { name: "Hoy", value: today, inline: true },
+        { name: "Pendientes", value: discordText(`${pendingCount}: ${pendingNames}`) },
+        { name: "Ya avisados hoy", value: String(alreadySentCount), inline: true },
+        {
+          name: "Estado de la mesa",
+          value: discordText(statusRows.map((row) => `${row.name} (${row.role}): ${row.status}. Hasta: ${row.filledUntil}`).join("\n"))
+        }
+      ],
+      footer: { text: "P*to Calendario" },
+      timestamp: new Date().toISOString()
+    }]
+  });
 }
 
 function statusPill(status: string) {

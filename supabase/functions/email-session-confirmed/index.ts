@@ -1,3 +1,4 @@
+import { discordText, sendDiscord } from "../_shared/discordClient.ts";
 import { sendEmail } from "../_shared/emailClient.ts";
 
 type Recipient = {
@@ -64,7 +65,18 @@ Deno.serve(async (request) => {
     else sent += 1;
   }
 
-  return jsonResponse({ sent, attempted: recipients.length, failures, providers: [...providers], eventType });
+  const discordResult = await sendSessionDiscord({ session, eventType, appUrl });
+  providers.add(discordResult.provider);
+  if (!discordResult.ok) failures.push({ email: "discord", message: discordResult.message, provider: discordResult.provider });
+
+  return jsonResponse({
+    sent,
+    discordSent: discordResult.sent ? 1 : 0,
+    attempted: recipients.length,
+    failures,
+    providers: [...providers],
+    eventType
+  });
 });
 
 function buildSessionEmail({
@@ -139,6 +151,56 @@ function buildSessionEmail({
       appUrl
     })
   };
+}
+
+async function sendSessionDiscord({
+  session,
+  eventType,
+  appUrl
+}: {
+  session: SessionPayload;
+  eventType: "confirmed" | "cancelled";
+  appUrl: string;
+}) {
+  const isCancelled = eventType === "cancelled";
+  const campaignName = session.campaignName || "Campana";
+  const details = session.details || {};
+  const availablePlayers = details.availablePlayers || [];
+  const unavailablePlayers = details.unavailablePlayers || [];
+  const availableDms = details.availableDms || [];
+  const assignedDms = details.assignedDms || [];
+  const modeSummary = details.modeSummary || {};
+  const statusLabel = isCancelled ? "cancelada" : "confirmada";
+
+  return sendDiscord({
+    content: `Sesion ${statusLabel}: ${campaignName}`,
+    embeds: [{
+      title: `${campaignName} ${statusLabel}`,
+      url: appUrl,
+      color: isCancelled ? 0xd66b5b : 0xd8ad3d,
+      fields: [
+        { name: "Dia", value: session.date || "sin fecha", inline: true },
+        { name: "Franja", value: `${session.slotLabel || ""} ${session.slotTime || ""}`.trim() || "-", inline: true },
+        { name: isCancelled ? "Cancelada por" : "Confirmada por", value: isCancelled ? session.cancelledBy || "DM" : session.createdBy || "DM", inline: true },
+        { name: "DM disponibles", value: discordText(names(availableDms) || namesFromStrings(session.dmNames) || "sin DM") },
+        { name: "DM asignados", value: discordText(names(assignedDms) || namesFromStrings(session.dmNames) || "sin DM") },
+        { name: "Players disponibles", value: discordText(names(availablePlayers) || "nadie") },
+        { name: "Players ausentes", value: discordText(personReasons(unavailablePlayers) || namesFromStrings(session.absentPlayerNames) || "nadie") },
+        {
+          name: "Modalidad",
+          value: `Online ${modeSummary.online || 0} | Presencial ${modeSummary.presencial || 0} | Ambos ${modeSummary.cualquiera || 0}`,
+          inline: true
+        },
+        {
+          name: "Asistencia",
+          value: `${details.availablePlayersCount || availablePlayers.length}/${details.playersTotal || Math.max(availablePlayers.length + unavailablePlayers.length, 0)} players`,
+          inline: true
+        }
+      ],
+      footer: { text: "P*to Calendario" },
+      timestamp: new Date().toISOString()
+    }]
+  });
 }
 
 function statBox(label: string, value: number, background: string) {

@@ -147,15 +147,16 @@
             </div>
             <article id="dmEmailTools" class="email-test-card" hidden>
               <div>
-                <span class="mini-label">Pruebas de correo</span>
-                <strong>Enviar prueba</strong>
+                <span class="mini-label">Pruebas de avisos</span>
+                <strong>Email y Discord</strong>
               </div>
-              <label class="email-test-field">Email destino
+              <label class="email-test-field">Email destino opcional
                 <input id="emailTestRecipient" type="email" placeholder="tu@email.com" />
               </label>
               <div class="form-actions">
                 <button class="ghost-button" type="button" id="sendReminderTest"><span class="ui-icon ui-icon-mail" aria-hidden="true"></span><span>Recordatorio</span></button>
                 <button class="ghost-button" type="button" id="sendSessionTest"><span class="ui-icon ui-icon-star" aria-hidden="true"></span><span>Sesion confirmada</span></button>
+                <button class="ghost-button danger" type="button" id="sendCancelTest"><span class="ui-icon ui-icon-blocked" aria-hidden="true"></span><span>Sesion cancelada</span></button>
               </div>
               <p id="emailTestStatus" class="form-message" aria-live="polite"></p>
             </article>

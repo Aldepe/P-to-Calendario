@@ -124,6 +124,7 @@ export class CalendarApp {
     byId("recalculate").addEventListener("click", () => this.renderSessions());
     byId("sendReminderTest")?.addEventListener("click", () => this.sendReminderTest());
     byId("sendSessionTest")?.addEventListener("click", () => this.sendSessionTest());
+    byId("sendCancelTest")?.addEventListener("click", () => this.sendSessionCancelTest());
 
     byId("campaignForm").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -655,7 +656,7 @@ export class CalendarApp {
         confirmedBy: this.currentUser,
         recipients: uniqueRecipients([...proposal.players, ...proposal.assignedDms])
       });
-      this.setToast(`Aviso enviado a ${result.sent || 0} persona(s).`);
+      this.setToast(`Aviso enviado: ${formatDelivery(result)}.`);
       this.render();
     } catch (error) {
       this.setToast(`No se pudo confirmar: ${error.message || error}`);
@@ -687,7 +688,7 @@ export class CalendarApp {
         cancelledBy: this.currentUser,
         recipients
       });
-      this.setToast(`Cancelacion enviada a ${result.sent || 0} persona(s).`);
+      this.setToast(`Cancelacion enviada: ${formatDelivery(result)}.`);
       this.render();
     } catch (error) {
       this.setToast(`No se pudo desconfirmar: ${error.message || error}`);
@@ -700,7 +701,7 @@ export class CalendarApp {
     if (!participant?.email) return;
     try {
       const result = await this.notificationGateway.sendReminderForParticipant(participant);
-      if (result.sent) this.setToast("Cuenta creada. Te he enviado el recordatorio inicial.");
+      if (Number(result.sent || 0) + Number(result.discordSent || 0) > 0) this.setToast(`Cuenta creada. Recordatorio inicial: ${formatDelivery(result)}.`);
     } catch (error) {
       console.warn("No se pudo enviar el recordatorio inicial.", error);
     }
@@ -708,19 +709,41 @@ export class CalendarApp {
 
   async sendReminderTest() {
     if (this.currentUser?.role !== "dm") return;
-    const recipient = this.currentEmailRecipient();
+    const recipient = this.currentNoticeRecipient();
     if (!recipient) return;
     await this.runEmailTest(async () => {
       const result = await this.notificationGateway.sendReminderTest({ recipient });
-      return `Recordatorio de prueba: ${result.sent || 0} email(s).`;
+      return `Recordatorio de prueba: ${formatDelivery(result)}.`;
     });
   }
 
   async sendSessionTest() {
     if (this.currentUser?.role !== "dm") return;
-    const recipient = this.currentEmailRecipient();
+    const recipient = this.currentNoticeRecipient();
+    if (!recipient) return;
+    const session = this.testSession(recipient);
+    await this.runEmailTest(async () => {
+      const result = await this.notificationGateway.sendSessionTest({ recipient, session });
+      return `Confirmacion de prueba: ${formatDelivery(result)}.`;
+    });
+  }
+
+  async sendSessionCancelTest() {
+    if (this.currentUser?.role !== "dm") return;
+    const recipient = this.currentNoticeRecipient();
     if (!recipient) return;
     const session = {
+      ...this.testSession(recipient),
+      cancelledBy: this.currentUser.name
+    };
+    await this.runEmailTest(async () => {
+      const result = await this.notificationGateway.sendSessionCancelTest({ recipient, session });
+      return `Cancelacion de prueba: ${formatDelivery(result)}.`;
+    });
+  }
+
+  testSession(recipient) {
+    return {
       id: crypto.randomUUID(),
       campaignId: "test",
       campaignName: "Prueba de campana",
@@ -742,17 +765,13 @@ export class CalendarApp {
         availablePlayersCount: 1
       }
     };
-    await this.runEmailTest(async () => {
-      const result = await this.notificationGateway.sendSessionTest({ recipient, session });
-      return `Confirmacion de prueba: ${result.sent || 0} email(s).`;
-    });
   }
 
-  currentEmailRecipient() {
+  currentNoticeRecipient() {
     const participant = this.findCurrentParticipant();
-    const email = String(byId("emailTestRecipient")?.value || participant?.email || this.currentUser?.email || "").trim();
-    if (!email || !email.includes("@") || email.endsWith(".local")) {
-      this.setEmailStatus("Escribe un email real para la prueba.");
+    const email = String(byId("emailTestRecipient")?.value || "").trim();
+    if (email && (!email.includes("@") || email.endsWith(".local"))) {
+      this.setEmailStatus("Escribe un email real o deja el campo vacio para probar solo Discord.");
       return null;
     }
     return {
@@ -979,6 +998,12 @@ function uniqueRecipients(recipients) {
     seen.add(key);
     return true;
   });
+}
+
+function formatDelivery(result = {}) {
+  const emailCount = Number(result.sent || 0);
+  const discordCount = Number(result.discordSent || 0);
+  return `${emailCount} email(s), ${discordCount} Discord`;
 }
 
 function escapeHtml(value) {
