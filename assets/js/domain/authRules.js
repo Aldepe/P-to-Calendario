@@ -16,10 +16,11 @@ export function buildSignupProfile(formData) {
 export function buildLoginCredentials(formData) {
   const credentials = {
     name: String(formData.get("loginName") || "").trim(),
+    email: String(formData.get("loginName") || "").trim(),
     password: String(formData.get("loginPassword") || "")
   };
 
-  if (!credentials.name) throw new Error("Escribe tu nombre para entrar.");
+  if (!credentials.name) throw new Error("Escribe tu nombre o email para entrar.");
   if (!credentials.password) throw new Error("Escribe tu contrasena.");
   return credentials;
 }

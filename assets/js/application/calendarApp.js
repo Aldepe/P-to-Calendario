@@ -178,7 +178,15 @@ export class CalendarApp {
   }
 
   availabilityForWeek(participant, weekStart = this.weekStart) {
-    return participant.availabilityByWeek?.[this.weekKey(weekStart)] || participant.availability || createEmptyAvailability();
+    const key = this.weekKey(weekStart);
+    const availabilityByWeek = participant.availabilityByWeek || {};
+    if (availabilityByWeek[key]) return availabilityByWeek[key];
+
+    const hasWeekData = Object.keys(availabilityByWeek).length > 0;
+    const currentWeekKey = this.weekKey(getWeekStart());
+    if (!hasWeekData && key === currentWeekKey) return participant.availability || createEmptyAvailability();
+
+    return createEmptyAvailability();
   }
 
   participantsForWeek(weekStart = this.weekStart) {
@@ -480,11 +488,11 @@ export class CalendarApp {
           <span>${proposal.slot.label} · ${proposal.slot.time}</span>
         </div>
         <div class="odds-strip">
-          <span>DM: ${formatPeople(proposal.availableDms)}</span>
-          <span>${proposal.availablePlayers.length}/${proposal.players.length} players</span>
-          <span>Faltan: ${missing.length ? escapeHtml(missing.join(", ")) : "0"}</span>
+          <span>${icon("dm")}DM: ${formatPeople(proposal.availableDms)}</span>
+          <span>${icon("players")}${proposal.availablePlayers.length}/${proposal.players.length} players</span>
+          <span>${icon("blocked")}Faltan: ${missing.length ? escapeHtml(missing.join(", ")) : "0"}</span>
         </div>
-        <button class="primary-button" type="button" ${canConfirm ? "" : "disabled"}>${canConfirm ? "Confirmar" : "Solo DM"}</button>
+        <button class="primary-button" type="button" ${canConfirm ? "" : "disabled"}>${icon(canConfirm ? "confirmed" : "dm")}${canConfirm ? "Confirmar" : "Solo DM"}</button>
       `;
       item.querySelector("button").addEventListener("click", () => this.confirmSession(proposal));
       proposalList.appendChild(item);
@@ -629,7 +637,8 @@ function participantFromUser(user, existing = {}, campaigns = []) {
 
 function buildSlotCard({ campaigns, participants, dayKey, slot, available, blocked, confirmed, slotCandidates, compact }) {
   const card = document.createElement("div");
-  const statusClass = confirmed.length ? "is-confirmed" : slotCandidates.length ? "is-viable" : "is-blocked";
+  const statusKey = confirmed.length ? "confirmed" : slotCandidates.length ? "viable" : "blocked";
+  const statusClass = `is-${statusKey}`;
   const statusText = confirmed.length
     ? "Confirmada"
     : slotCandidates.length
@@ -638,16 +647,16 @@ function buildSlotCard({ campaigns, participants, dayKey, slot, available, block
   const counts = modeCounts(available, dayKey, slot.id);
   card.className = `calendar-slot ${statusClass} ${compact ? "is-compact" : ""}`;
   card.innerHTML = `
-    <div class="slot-title"><strong>${compact ? slotShort(slot) : slot.label}</strong><span>${compact ? compactTime(slot.time) : slot.time}</span></div>
-    ${confirmed.map((session) => `<div class="confirmed-label">${escapeHtml(session.campaignName)}</div>`).join("")}
-    <div class="slot-status">${escapeHtml(statusText)}</div>
+    <div class="slot-title"><span class="slot-name">${icon(slot.id)}<strong>${compact ? slotShort(slot) : slot.label}</strong></span><span>${compact ? compactTime(slot.time) : slot.time}</span></div>
+    ${confirmed.map((session) => `<div class="confirmed-label">${icon("campaign")}${escapeHtml(session.campaignName)}</div>`).join("")}
+    <div class="slot-status">${icon(statusKey)}<span>${escapeHtml(statusText)}</span></div>
     <div class="mode-counts">
-      <span title="Online">O${counts.online}</span>
-      <span title="Presencial">P${counts.presencial}</span>
-      <span title="Ambos">A${counts.cualquiera}</span>
+      <span title="Online">${icon("online")}<b>${counts.online}</b></span>
+      <span title="Presencial">${icon("presencial")}<b>${counts.presencial}</b></span>
+      <span title="Ambos">${icon("cualquiera")}<b>${counts.cualquiera}</b></span>
     </div>
     ${compact ? "" : `<div class="campaign-chip-row">${slotCandidates.map((candidate) => chip(candidate.campaignName)).join("") || '<span class="soft-chip">Sin propuesta</span>'}</div>`}
-    ${compact ? "" : `<div class="people-lines"><span>+ ${formatPeople(available) || "Nadie"}</span><span>- ${formatUnavailable(blocked, dayKey, slot.id) || "Sin bloqueos"}</span></div>`}
+    ${compact ? "" : `<div class="people-lines"><span>${icon("available")}${formatPeople(available) || "Nadie"}</span><span>${icon("unavailable")}${formatUnavailable(blocked, dayKey, slot.id) || "Sin bloqueos"}</span></div>`}
   `;
   return card;
 }
@@ -692,19 +701,6 @@ function reasonFor(participant, dayKey, slotId) {
   return reason ? ` (${reason})` : "";
 }
 
-function slotBlockReason(campaigns, participants, dayKey, slotId) {
-  const reasons = campaigns.map((campaign) => {
-    const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(campaign.id));
-    const assignedDms = participants.filter((participant) => participant.role === "dm" && campaign.dmIds.includes(participant.id));
-    const availableDms = assignedDms.filter((participant) => participant.availability?.[dayKey]?.[slotId]?.available);
-    const missingPlayers = players.filter((participant) => !participant.availability?.[dayKey]?.[slotId]?.available);
-    if (!assignedDms.length || !availableDms.length) return `${campaign.name}: falta DM`;
-    if (missingPlayers.length > 2) return `${campaign.name}: faltan ${missingPlayers.length} players`;
-    return "";
-  }).filter(Boolean);
-  return reasons[0] || "Sin campana viable";
-}
-
 function slotBlockReasonShort(campaigns, participants, dayKey, slotId) {
   for (const campaign of campaigns) {
     const players = participants.filter((participant) => participant.role === "player" && participant.campaignIds.includes(campaign.id));
@@ -718,7 +714,7 @@ function slotBlockReasonShort(campaigns, participants, dayKey, slotId) {
 }
 
 function chip(label) {
-  return `<span class="campaign-chip">${escapeHtml(label)}</span>`;
+  return `<span class="campaign-chip">${icon("campaign")}${escapeHtml(label)}</span>`;
 }
 
 function fillMark(slot, entry) {
@@ -726,7 +722,11 @@ function fillMark(slot, entry) {
   const hasReason = String(entry.reason || "").trim();
   const state = available ? "is-on" : hasReason ? "is-off" : "is-missing";
   const title = available ? "Disponible" : hasReason ? `No: ${entry.reason}` : "Pendiente";
-  return `<span class="${state}" title="${escapeHtml(`${slot.label}: ${title}`)}">${slotShort(slot)}</span>`;
+  return `<span class="${state}" title="${escapeHtml(`${slot.label}: ${title}`)}">${icon(slot.id)}<b>${slotShort(slot)}</b></span>`;
+}
+
+function icon(name) {
+  return `<span class="ui-icon ui-icon-${name}" aria-hidden="true"></span>`;
 }
 
 function slotShort(slot) {
@@ -748,32 +748,4 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function sampleState() {
-  const weekStart = getWeekStart();
-  const campaigns = normalizeCampaigns([
-    { id: "drakkenheim", name: "Drakkenheim", tone: "gold", dmIds: ["sample-alex"] },
-    { id: "strahd", name: "La Maldicion de Strahd", tone: "red", dmIds: ["sample-alex"] },
-    { id: "eberron", name: "Relampagos de Eberron", tone: "green", dmIds: ["sample-iris"] }
-  ]);
-  const base = (id, name, role, email, campaignIds, unavailable = []) => {
-    const availability = createEmptyAvailability();
-    for (const [day] of DAYS) for (const slot of SLOTS) availability[day][slot.id] = { available: true, mode: "cualquiera", reason: "" };
-    unavailable.forEach(([day, slot, reason]) => {
-      availability[day][slot] = { available: false, mode: "online", reason };
-    });
-    return { id, name, role, email, phone: "", campaignIds, filledUntil: addDaysIso(weekStart, 6), availability };
-  };
-  return {
-    campaigns,
-    participants: [
-      base("sample-alex", "Alex", "dm", "alex@example.local", ["drakkenheim", "strahd"], [["friday", "evening", "curro"]]),
-      base("sample-iris", "Iris", "dm", "iris@example.local", ["eberron"], [["monday", "morning", "preparacion"]]),
-      base("sample-mara", "Mara", "player", "mara@example.local", ["drakkenheim", "strahd"], [["monday", "morning", "clase"]]),
-      base("sample-leo", "Leo", "player", "leo@example.local", ["drakkenheim", "eberron"], [["saturday", "evening", "familia"]]),
-      base("sample-nora", "Nora", "player", "nora@example.local", ["strahd", "eberron"], [["wednesday", "morning", "viaje"]])
-    ],
-    sessions: []
-  };
 }

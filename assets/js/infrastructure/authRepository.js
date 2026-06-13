@@ -109,9 +109,15 @@ export class SupabaseAuthRepository {
 
   async login(credentials) {
     try {
-      throw new Error("Login por telefono necesita el numero completo; usando fallback local para esta demo.");
+      if (!credentials.email.includes("@")) throw new Error("El login remoto necesita email; usando fallback local.");
+      const { data, error } = await this.client.auth.signInWithPassword({
+        email: credentials.email,
+        password: credentials.password
+      });
+      if (error || !data?.user) throw error || new Error("Login remoto incompleto.");
+      return userFromSupabase(data.user);
     } catch (error) {
-      console.warn(error.message);
+      console.warn("Login remoto fallido, usando auth local.", error);
       return this.fallback.login(credentials);
     }
   }
@@ -128,7 +134,7 @@ export class SupabaseAuthRepository {
 function userFromSupabase(user) {
   return {
     id: user.id,
-    name: user.user_metadata?.name || user.phone || "Usuario",
+    name: user.user_metadata?.name || user.email || "Usuario",
     email: user.email || "",
     role: user.user_metadata?.role || "player",
     phone: user.phone || "",

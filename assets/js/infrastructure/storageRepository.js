@@ -188,6 +188,11 @@ function normalizeState(state) {
 }
 
 function normalizeStoredParticipant(participant, campaigns) {
+  const availability = participant.availability || createEmptyAvailability();
+  const availabilityByWeek = participant.availabilityByWeek && Object.keys(participant.availabilityByWeek).length
+    ? participant.availabilityByWeek
+    : { [addDaysIso(getWeekStart(), 0)]: availability };
+
   return {
     id: participant.id || crypto.randomUUID(),
     name: participant.name || "Sin nombre",
@@ -196,8 +201,8 @@ function normalizeStoredParticipant(participant, campaigns) {
     phone: participant.phone || "",
     campaignIds: normalizeCampaignIds(participant.campaignIds, campaigns),
     filledUntil: participant.filledUntil || "",
-    availability: participant.availability || createEmptyAvailability(),
-    availabilityByWeek: participant.availabilityByWeek || {}
+    availability,
+    availabilityByWeek
   };
 }
 

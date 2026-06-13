@@ -4,9 +4,9 @@ export class ConsoleNotificationGateway {
   async sendSessionConfirmed(payload) {
     console.info("Aviso simulado", {
       message: buildSessionMessage(payload.session),
-      recipients: payload.recipients.map((recipient) => ({ name: recipient.name, phone: recipient.phone }))
+      recipients: payload.recipients.map((recipient) => ({ name: recipient.name, email: recipient.email }))
     });
-    return { mode: "simulation", sent: payload.recipients.filter((recipient) => recipient.phone).length };
+    return { mode: "simulation", sent: payload.recipients.filter((recipient) => recipient.email).length };
   }
 }
 

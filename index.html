@@ -16,7 +16,7 @@
         <div id="userPanel" class="user-panel" hidden>
           <span id="userRole"></span>
           <strong id="userName"></strong>
-          <button class="ghost-button compact" type="button" id="logoutButton">Salir</button>
+          <button class="ghost-button compact" type="button" id="logoutButton"><span class="ui-icon ui-icon-exit" aria-hidden="true"></span><span>Salir</span></button>
         </div>
       </header>
 
@@ -28,13 +28,13 @@
           </div>
 
           <form id="loginForm" class="auth-form">
-            <label>Nombre
-              <input name="loginName" autocomplete="username" required placeholder="DemoDM" />
+            <label>Nombre o email
+              <input name="loginName" autocomplete="username" required placeholder="DemoDM o tu@email.com" />
             </label>
             <label>Contrasena
               <input name="loginPassword" type="password" autocomplete="current-password" required placeholder="demo123" />
             </label>
-            <button class="primary-button" type="submit">Entrar</button>
+            <button class="primary-button" type="submit"><span class="ui-icon ui-icon-login" aria-hidden="true"></span><span>Entrar</span></button>
             <div class="demo-logins">
               <span class="mini-label">Demo local</span>
               <p><b>DM:</b> DemoDM / demo123</p>
@@ -64,7 +64,7 @@
               <span class="field-title">Campanas</span>
               <div id="signupCampaigns" class="campaign-choice-grid"></div>
             </div>
-            <button class="primary-button" type="submit">Crear cuenta</button>
+            <button class="primary-button" type="submit"><span class="ui-icon ui-icon-add" aria-hidden="true"></span><span>Crear cuenta</span></button>
           </form>
 
           <p id="authMessage" class="form-message" role="alert"></p>
@@ -73,10 +73,10 @@
 
       <div id="appShell" hidden>
         <nav class="tabs" aria-label="Secciones">
-          <button class="tab is-active" type="button" data-tab="calendar">Calendario</button>
-          <button class="tab" type="button" data-tab="fill">Rellenar</button>
-          <button class="tab" type="button" data-tab="sessions">Sesiones</button>
-          <button class="tab" type="button" data-tab="campaigns">Campanas</button>
+          <button class="tab is-active" type="button" data-tab="calendar"><span class="ui-icon ui-icon-calendar" aria-hidden="true"></span><span>Calendario</span></button>
+          <button class="tab" type="button" data-tab="fill"><span class="ui-icon ui-icon-fill" aria-hidden="true"></span><span>Rellenar</span></button>
+          <button class="tab" type="button" data-tab="sessions"><span class="ui-icon ui-icon-sessions" aria-hidden="true"></span><span>Sesiones</span></button>
+          <button class="tab" type="button" data-tab="campaigns"><span class="ui-icon ui-icon-campaign" aria-hidden="true"></span><span>Campanas</span></button>
         </nav>
 
         <main>
@@ -89,14 +89,14 @@
                 <h2 id="calendar-title">Disponibilidad visible</h2>
               </div>
               <div class="week-controls">
-                <button class="icon-button" type="button" data-week="prev" aria-label="Semana anterior">&lt;</button>
+                <button class="icon-button" type="button" data-week="prev" aria-label="Semana anterior"><span class="ui-icon ui-icon-prev" aria-hidden="true"></span></button>
                 <strong id="weekLabel"></strong>
-                <button class="icon-button" type="button" data-week="next" aria-label="Semana siguiente">&gt;</button>
+                <button class="icon-button" type="button" data-week="next" aria-label="Semana siguiente"><span class="ui-icon ui-icon-next" aria-hidden="true"></span></button>
               </div>
             </div>
             <div class="view-toggle" aria-label="Vista calendario">
-              <button class="is-active" type="button" data-view-target="calendarGrid" data-view-mode="week">Semana</button>
-              <button type="button" data-view-target="calendarGrid" data-view-mode="calendar">Calendario</button>
+              <button class="is-active" type="button" data-view-target="calendarGrid" data-view-mode="week"><span class="ui-icon ui-icon-week" aria-hidden="true"></span><span>Semana</span></button>
+              <button type="button" data-view-target="calendarGrid" data-view-mode="calendar"><span class="ui-icon ui-icon-calendar" aria-hidden="true"></span><span>Calendario</span></button>
             </div>
             <div id="calendarGrid" class="calendar-grid"></div>
           </section>
@@ -108,9 +108,9 @@
                 <h2 id="fill-title">Rellenar disponibilidad</h2>
               </div>
               <div class="week-controls">
-                <button class="icon-button" type="button" data-week="prev" aria-label="Semana anterior">&lt;</button>
+                <button class="icon-button" type="button" data-week="prev" aria-label="Semana anterior"><span class="ui-icon ui-icon-prev" aria-hidden="true"></span></button>
                 <strong id="fillWeekLabel"></strong>
-                <button class="icon-button" type="button" data-week="next" aria-label="Semana siguiente">&gt;</button>
+                <button class="icon-button" type="button" data-week="next" aria-label="Semana siguiente"><span class="ui-icon ui-icon-next" aria-hidden="true"></span></button>
               </div>
             </div>
 
@@ -131,13 +131,13 @@
               </div>
 
               <div class="view-toggle" aria-label="Vista rellenar">
-                <button class="is-active" type="button" data-view-target="availabilityEditor" data-view-mode="week">Semana</button>
-                <button type="button" data-view-target="availabilityEditor" data-view-mode="calendar">Calendario</button>
+                <button class="is-active" type="button" data-view-target="availabilityEditor" data-view-mode="week"><span class="ui-icon ui-icon-week" aria-hidden="true"></span><span>Semana</span></button>
+                <button type="button" data-view-target="availabilityEditor" data-view-mode="calendar"><span class="ui-icon ui-icon-calendar" aria-hidden="true"></span><span>Calendario</span></button>
               </div>
               <div id="availabilityEditor" class="availability-editor"></div>
 
               <div class="form-actions">
-                <button class="primary-button" type="submit">Guardar disponibilidad</button>
+                <button class="primary-button" type="submit"><span class="ui-icon ui-icon-save" aria-hidden="true"></span><span>Guardar disponibilidad</span></button>
               </div>
             </form>
           </section>
@@ -148,7 +148,7 @@
                 <p class="eyebrow">solo esta semana</p>
                 <h2 id="sessions-title">Sugerencias y confirmadas</h2>
               </div>
-              <button class="primary-button" type="button" id="recalculate">Recalcular</button>
+              <button class="primary-button" type="button" id="recalculate"><span class="ui-icon ui-icon-refresh" aria-hidden="true"></span><span>Recalcular</span></button>
             </div>
             <div class="sessions-layout">
               <div>
@@ -173,7 +173,7 @@
               <label>Nueva campana
                 <input name="campaignName" placeholder="Nombre de campana" />
               </label>
-              <button class="primary-button" type="submit">Anadir</button>
+              <button class="primary-button" type="submit"><span class="ui-icon ui-icon-add" aria-hidden="true"></span><span>Anadir</span></button>
             </form>
             <div id="campaignList" class="campaign-admin-list"></div>
           </section>
@@ -189,7 +189,7 @@
         </div>
         <label class="toggle">
           <input type="checkbox" data-field="available" />
-          <span>Disponible</span>
+          <span><span class="ui-icon ui-icon-available" aria-hidden="true"></span>Disponible</span>
         </label>
         <label>Modalidad
           <select data-field="mode">
